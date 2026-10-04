@@ -1,0 +1,104 @@
+# Copy to config.yaml and adjust for your workspace.
+# Priority: CLI flags > RAG_* env vars > this file > defaults.
+#
+# Unpack layout: place this package as <workspace>/rag-mcp/ so repo_root ".."
+# points at the workspace you want to index.
+
+mcp:
+  name: "workspace-rag"
+  instructions: |
+    You have access to a private RAG index for this workspace.
+    ALWAYS call search_knowledge for architecture/docs questions and
+    search_code for implementation questions before answering from memory.
+    When the task is scoped to one configured app, pass app=<name> to search_code.
+    Cite returned file paths in your answer.
+    If a tool returns a Qdrant lock error, tell the user to stop indexing
+    or switch qdrant.mode to server.
+
+embedding:
+  # openai → /v1/embeddings (LM Studio, Paddock, OpenAI-compatible)
+  # ollama → /api/embeddings (native Ollama; use base_url .../api/embed for batched API)
+  provider: "openai"
+  base_url: "http://localhost:1234/v1"
+  api_key: "local"
+  model: "text-embedding-nomic-embed-text-v1.5"
+  # Optional model-specific prefixes (e.g. Nomic search_document: / search_query:)
+  document_prefix: ""
+  query_prefix: ""
+  timeout_ms: 60000
+  batch_size: 32
+  # Truncate pathologically large inputs before calling the API (0 = disabled)
+  max_input_chars: 6000
+  # Parallel embedding HTTP calls (raise for faster Ollama indexing; watch GPU/CPU load)
+  concurrency: 4
+
+  # Example — Ollama native:
+  # provider: "ollama"
+  # base_url: "http://localhost:11434"
+  # model: "nomic-embed-text:v1.5"
+
+qdrant:
+  mode: "local" # local | memory | server
+  local_path: "./qdrant_data"
+  url: "http://localhost:6333"
+  # Use a unique collection name per workspace
+  collection: "workspace_rag"
+  # Local mode allows only one process. Retries help Cursor reconnect races.
+  connect_retries: 10
+  connect_retry_delay_ms: 500
+
+index:
+  # Relative to this package root (rag-mcp/). ".." = parent workspace.
+  repo_root: ".."
+  # knowledge | code | all
+  sources: "all"
+  chunk_size: 1200
+  chunk_overlap: 150
+  status_file: "./index_status.json"
+
+  # Globs relative to repo_root (list separate patterns; brace expansion is not supported)
+  knowledge:
+    - "README.md"
+    - "readme.md"
+    - "docs/**/*.md"
+    - ".devdoc/**/*.md"
+    - "documentation/**/*.md"
+  code:
+    - "src/**/*.ts"
+    - "src/**/*.js"
+    - "src/**/*.py"
+    - "apps/**/*.ts"
+    - "apps/**/*.js"
+    - "apps/**/*.py"
+    - "apps/**/*.ejs"
+
+  # Optional: path prefix → app label for search_code(app=...)
+  apps:
+    - prefix: "apps/web/"
+      name: "web"
+    - prefix: "apps/taskscheduler/"
+      name: "taskscheduler"
+
+  documentation_prefixes:
+    - ".devdoc/"
+    - "docs/"
+    - "documentation/"
+
+  ignore_dirs:
+    - node_modules
+    - dist
+    - coverage
+    - build
+    - .git
+    - .venv
+    - venv
+    - __pycache__
+    - .turbo
+    - .next
+    - qdrant_data
+
+search:
+  top_k: 8
+  score_threshold: 0.2
+
+log_level: "INFO"

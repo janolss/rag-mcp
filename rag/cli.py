@@ -1,0 +1,98 @@
+"""CLI entrypoints: index, status, search."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import sys
+
+from dotenv import load_dotenv
+
+from rag.config import PACKAGE_ROOT, load_config
+from rag.indexer.run import run_index, status_report
+from rag.retrieval.search import search_code, search_knowledge
+from rag.store import QdrantLockError
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Workspace RAG toolkit")
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("RAG_CONFIG", "config.yaml"),
+        help="Path to config.yaml (relative to package root unless absolute)",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("index", help="Full rebuild of the Qdrant collection")
+    sub.add_parser("status", help="Show index/collection status")
+
+    search = sub.add_parser("search", help="Debug search against the index")
+    search.add_argument("query", help="Search query")
+    search.add_argument(
+        "--mode",
+        choices=["knowledge", "code"],
+        default="knowledge",
+        help="Which tool surface to emulate",
+    )
+    search.add_argument(
+        "--app",
+        default=None,
+        help="Optional app filter (must match a configured index.apps name)",
+    )
+    search.add_argument("--top-k", type=int, default=None)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    load_dotenv(PACKAGE_ROOT / ".env")
+    os.chdir(PACKAGE_ROOT)
+
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    config = load_config(args.config)
+
+    logging.basicConfig(
+        level=getattr(logging, config.log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    if args.command == "index":
+        try:
+            status = run_index(config)
+        except QdrantLockError as exc:
+            logging.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(json.dumps(status, indent=2))
+        return 0
+
+    if args.command == "status":
+        try:
+            report = status_report(config)
+        except QdrantLockError as exc:
+            logging.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(json.dumps(report, indent=2))
+        return 0
+
+    if args.command == "search":
+        try:
+            if args.mode == "knowledge":
+                print(search_knowledge(config, args.query, top_k=args.top_k))
+            else:
+                print(search_code(config, args.query, app=args.app, top_k=args.top_k))
+        except QdrantLockError as exc:
+            logging.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            return 1
+        return 0
+
+    parser.error(f"Unknown command: {args.command}")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

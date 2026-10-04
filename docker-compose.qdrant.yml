@@ -1,0 +1,14 @@
+# Optional: use when qdrant.mode is "server"
+# docker compose -f docker-compose.qdrant.yml up -d
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:

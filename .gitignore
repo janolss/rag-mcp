@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+config.yaml
+qdrant_data/
+index_status.json
+dist/
+*.zip
+.DS_Store
+*.egg-info/
+.eggs/
+build/

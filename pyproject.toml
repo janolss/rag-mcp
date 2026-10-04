@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-mcp"
+version = "0.1.0"
+description = "Local workspace RAG MCP toolkit"
+requires-python = ">=3.10"
+dependencies = [
+  "mcp>=1.26.0,<2",
+  "qdrant-client>=1.17.0,<2",
+  "httpx>=0.27,<1",
+  "pyyaml>=6.0,<7",
+  "python-dotenv>=1.2.0,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9"]
+
+[project.scripts]
+rag-mcp = "rag.mcp_server:main"
+rag-cli = "rag.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["rag*"]
