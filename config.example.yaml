@@ -7,13 +7,21 @@
 mcp:
   name: "workspace-rag"
   instructions: |
-    You have access to a private RAG index for this workspace.
-    ALWAYS call search_knowledge for architecture/docs questions and
-    search_code for implementation questions before answering from memory.
-    When the task is scoped to one configured app, pass app=<name> to search_code.
-    Cite returned file paths in your answer.
-    If a tool returns a Qdrant lock error, tell the user to stop indexing
-    or switch qdrant.mode to server.
+    You have access to a private RAG index for this workspace (requirements/docs + code).
+
+    Workflow (mandatory):
+    1. Call index_status before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index.
+    2. For scoped app work, call list_sources (or use known apps) and pass app=<name> to code tools.
+    3. Before implementing a change: call get_context_pack(task) or impact_of_change(change). Do not invent architecture from memory.
+    4. When a requirement ID or requirement text is given: call trace_requirement first.
+    5. For PR/review quality: use prompt pr-review or call find_gaps on the affected area; require explicit requirement→code→test links; state gaps clearly.
+    6. Prefer search_knowledge for docs/architecture and search_code for implementation details when you need targeted follow-ups after a context pack.
+
+    Rules:
+    - Cite file paths (and line ranges when present) from tool results.
+    - If scores are weak or tools return no hits, say so and ask for a better query or re-index — do not guess.
+    - On Qdrant lock errors: tell the user to stop the indexer or switch qdrant.mode to server (team: prefer server mode).
+    - Do not claim the index is complete coverage; find_gaps is heuristic.
 
 embedding:
   # openai → /v1/embeddings (LM Studio, Paddock, OpenAI-compatible)
@@ -57,6 +65,7 @@ index:
   status_file: "./index_status.json"
 
   # Globs relative to repo_root (list separate patterns; brace expansion is not supported)
+  # Tip: include docs/requirements/**/*.md and .devdoc/**/ADR*.md when present.
   knowledge:
     - "README.md"
     - "readme.md"
@@ -84,6 +93,12 @@ index:
     - "docs/"
     - "documentation/"
 
+  # Extracted into chunk.requirement_ids at index time (trace_requirement)
+  requirement_id_patterns:
+    - "REQ-\\d+"
+    - "KR-\\d+"
+    - "US-\\d+"
+
   ignore_dirs:
     - node_modules
     - dist
@@ -100,5 +115,8 @@ index:
 search:
   top_k: 8
   score_threshold: 0.2
+  # Hybrid re-rank: final = vector_weight * vector + lexical_weight * lexical
+  vector_weight: 0.7
+  lexical_weight: 0.3
 
 log_level: "INFO"

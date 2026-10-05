@@ -103,9 +103,18 @@ class VectorStore:
     def collection_exists(self) -> bool:
         return self.client.collection_exists(self.collection)
 
+    def ensure_collection(self, vector_size: int) -> None:
+        """Create collection if missing; leave existing data intact."""
+        if self.collection_exists():
+            return
+        self._create_collection(vector_size)
+
     def recreate_collection(self, vector_size: int) -> None:
         if self.client.collection_exists(self.collection):
             self.client.delete_collection(self.collection)
+        self._create_collection(vector_size)
+
+    def _create_collection(self, vector_size: int) -> None:
         self.client.create_collection(
             collection_name=self.collection,
             vectors_config=models.VectorParams(
@@ -116,7 +125,7 @@ class VectorStore:
         logger.info("Created collection '%s' (dim=%d)", self.collection, vector_size)
         # Payload indexes only apply to server Qdrant; local/memory modes ignore them.
         if self._config.qdrant.mode == "server":
-            for field_name in ("type", "app", "file"):
+            for field_name in ("type", "app", "file", "requirement_ids"):
                 self.client.create_payload_index(
                     collection_name=self.collection,
                     field_name=field_name,
@@ -136,19 +145,25 @@ class VectorStore:
         points = []
         for chunk, vector in zip(chunks, vectors):
             point_id = make_point_id(chunk["file"], str(chunk.get("chunk_index", 0)), chunk["content"])
+            payload: dict[str, Any] = {
+                "type": chunk["type"],
+                "app": chunk["app"],
+                "file": chunk["file"],
+                "language": chunk.get("language"),
+                "section": chunk.get("section"),
+                "chunk_index": chunk.get("chunk_index", 0),
+                "content": chunk["content"],
+                "requirement_ids": list(chunk.get("requirement_ids") or []),
+            }
+            if chunk.get("start_line") is not None:
+                payload["start_line"] = chunk["start_line"]
+            if chunk.get("end_line") is not None:
+                payload["end_line"] = chunk["end_line"]
             points.append(
                 models.PointStruct(
                     id=point_id,
                     vector=list(vector),
-                    payload={
-                        "type": chunk["type"],
-                        "app": chunk["app"],
-                        "file": chunk["file"],
-                        "language": chunk.get("language"),
-                        "section": chunk.get("section"),
-                        "chunk_index": chunk.get("chunk_index", 0),
-                        "content": chunk["content"],
-                    },
+                    payload=payload,
                 )
             )
 
@@ -160,6 +175,28 @@ class VectorStore:
                 wait=True,
             )
         return len(points)
+
+    def delete_by_files(self, files: Sequence[str]) -> None:
+        """Delete all points whose payload.file is in files."""
+        if not files or not self.collection_exists():
+            return
+        unique = sorted({f.replace("\\", "/") for f in files if f})
+        if not unique:
+            return
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="file",
+                            match=models.MatchAny(any=unique),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
 
     def count(self) -> int:
         if not self.collection_exists():
@@ -175,29 +212,18 @@ class VectorStore:
         score_threshold: float | None,
         type_filter: list[str] | None = None,
         app_filter: str | None = None,
+        requirement_id: str | None = None,
     ) -> list[models.ScoredPoint]:
         if not self.collection_exists():
             raise RuntimeError(
                 f"Collection '{self.collection}' does not exist. Run: python -m rag.cli index"
             )
 
-        must: list[models.FieldCondition] = []
-        if type_filter:
-            must.append(
-                models.FieldCondition(
-                    key="type",
-                    match=models.MatchAny(any=type_filter),
-                )
-            )
-        if app_filter:
-            must.append(
-                models.FieldCondition(
-                    key="app",
-                    match=models.MatchValue(value=app_filter),
-                )
-            )
-
-        query_filter = models.Filter(must=must) if must else None
+        query_filter = build_type_app_filter(
+            type_filter=type_filter,
+            app_filter=app_filter,
+            requirement_id=requirement_id,
+        )
         results = self.client.query_points(
             collection_name=self.collection,
             query=list(query_vector),
@@ -206,6 +232,32 @@ class VectorStore:
             score_threshold=score_threshold,
         )
         return list(results.points)
+
+    def scroll_by_requirement_id(
+        self,
+        requirement_id: str,
+        *,
+        limit: int = 32,
+        type_filter: list[str] | None = None,
+        app_filter: str | None = None,
+    ) -> list[models.Record]:
+        if not self.collection_exists():
+            raise RuntimeError(
+                f"Collection '{self.collection}' does not exist. Run: python -m rag.cli index"
+            )
+        query_filter = build_type_app_filter(
+            type_filter=type_filter,
+            app_filter=app_filter,
+            requirement_id=requirement_id,
+        )
+        records, _offset = self.client.scroll(
+            collection_name=self.collection,
+            scroll_filter=query_filter,
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return list(records)
 
     def close(self) -> None:
         try:
@@ -218,6 +270,7 @@ def build_type_app_filter(
     *,
     type_filter: list[str] | None = None,
     app_filter: str | None = None,
+    requirement_id: str | None = None,
 ) -> models.Filter | None:
     """Pure helper used by tests and callers that need the filter object."""
     must: list[models.FieldCondition] = []
@@ -233,6 +286,13 @@ def build_type_app_filter(
             models.FieldCondition(
                 key="app",
                 match=models.MatchValue(value=app_filter),
+            )
+        )
+    if requirement_id:
+        must.append(
+            models.FieldCondition(
+                key="requirement_ids",
+                match=models.MatchValue(value=requirement_id),
             )
         )
     return models.Filter(must=must) if must else None

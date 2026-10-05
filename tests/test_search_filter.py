@@ -21,3 +21,10 @@ def test_filter_type_and_app():
     assert len(filt.must) == 2
     keys = {c.key for c in filt.must}
     assert keys == {"type", "app"}
+
+
+def test_filter_requirement_id():
+    filt = build_type_app_filter(requirement_id="REQ-42")
+    assert len(filt.must) == 1
+    assert filt.must[0].key == "requirement_ids"
+    assert filt.must[0].match.value == "REQ-42"

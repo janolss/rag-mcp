@@ -1,7 +1,8 @@
 # rag-mcp
 
 Local retrieval for coding agents. Indexes a workspace into Qdrant and exposes
-MCP tools `search_knowledge` and `search_code`.
+MCP tools for search, context packs, requirement tracing, impact analysis, plus
+prompts and resources for change/review workflows.
 
 Place this package as `<workspace>/rag-mcp/`. Configure what to index in
 `config.yaml`, then point Cursor / VS Code / OpenCode at `run_mcp.py`.
@@ -64,6 +65,14 @@ Edit at least:
 .venv/bin/python -m rag.cli --config config.yaml index
 ```
 
+Partial upsert (does not recreate the collection):
+
+```bash
+.venv/bin/python -m rag.cli --config config.yaml index --files docs/requirements/booking.md apps/web/services/BookingService.ts
+```
+
+After large refactors, prefer a full `index`.
+
 5. Add an MCP server (use **absolute** paths; no spaces in paths):
 
 ```json
@@ -120,6 +129,9 @@ npm run package     # build dist/rag-mcp.zip
 
 Changing `embedding.model` requires a reindex. `rag:status` warns on mismatch.
 
+Index status includes `git_sha` (workspace HEAD at index time) and
+`requirement_id_patterns`. Compare `git_sha` with your working tree before review.
+
 If Ollama returns `input length exceeds the context length`, lower `index.chunk_size`
 and/or `embedding.max_input_chars`, then reindex.
 
@@ -129,6 +141,19 @@ Speed up indexing with parallel embedding requests:
 embedding:
   concurrency: 8   # try 4–16; local models may saturate earlier
 ```
+
+### Requirement IDs
+
+At index time, chunks are scanned for IDs matching `index.requirement_id_patterns`
+(default `REQ-\d+`, `KR-\d+`, `US-\d+`). Mark requirements in docs (and ideally in
+code comments) so `trace_requirement` can link them after reindex.
+
+Useful knowledge to keep under existing globs:
+
+- Requirements with stable IDs (`docs/requirements/**/*.md`)
+- ADRs / architecture decisions (`.devdoc/**/ADR*.md`)
+- Review checklists / Definition of Done
+- Security and operations constraints
 
 ### Qdrant lock (`already accessed` / local mode)
 
@@ -141,7 +166,9 @@ Workflow with local mode:
 2. Run `index`
 3. Enable MCP again
 
-For concurrent MCP + indexing, use server mode:
+### Team / concurrent agents
+
+Prefer **server mode** when several agents or MCP sessions share the index:
 
 ```yaml
 qdrant:
@@ -153,18 +180,48 @@ qdrant:
 npm run rag:up
 ```
 
+Ownership model:
+
+- One CI job or person runs `rag:index` (or `index --files` for small updates)
+- Agents use MCP **read-only** (search / trace / impact); they do not reindex
+- Call `index_status` and compare `git_sha` before relying on results in review
+
 ### Tools
 
-| Tool | Filter |
-|------|--------|
-| `search_knowledge` | `type=documentation` |
-| `search_code` | `type in (code, test)`; optional `app` from `index.apps` |
+| Tool | Purpose |
+|------|---------|
+| `index_status` | Freshness, model, `git_sha`, stale hints |
+| `list_sources` | Apps, globs, requirement ID patterns |
+| `search_knowledge` | Docs (`type=documentation`); optional `path_prefix` |
+| `search_code` | Code/tests; optional `app`, `path_prefix` |
+| `get_context_pack` | Structured docs + code pack for a task |
+| `trace_requirement` | Requirement ID/text → docs + code/tests |
+| `impact_of_change` | Likely code, docs, tests, risks for a change |
+| `find_gaps` | Heuristic docs↔code coverage gaps |
+
+### Resources
+
+| URI | Content |
+|-----|---------|
+| `rag://status` | Same JSON as `index_status` |
+| `rag://sources` | Same JSON as `list_sources` |
+
+### Prompts
+
+| Prompt | Use |
+|--------|-----|
+| `change-plan` | Plan a change with mandatory tool sequence |
+| `pr-review` | Review against requirements/docs |
+| `requirement-coverage` | Coverage for one requirement |
+| `onboarding-slice` | Short reading guide |
+| `regression-check` | Likely regressions for a changed area |
 
 ## Debug search
 
 ```bash
 .venv/bin/python -m rag.cli search "architecture overview" --mode knowledge
 .venv/bin/python -m rag.cli search "BookingService" --mode code --app web
+.venv/bin/python -m rag.cli search "booking" --mode code --path-prefix apps/web/
 ```
 
 ## Tests

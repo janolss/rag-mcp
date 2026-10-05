@@ -48,14 +48,26 @@ DEFAULT_IGNORE_DIRS: tuple[str, ...] = (
     "qdrant_data",
 )
 
-DEFAULT_MCP_INSTRUCTIONS = (
-    "You have access to a private RAG index for this workspace. "
-    "ALWAYS call search_knowledge for architecture/docs questions and "
-    "search_code for implementation questions before answering from memory. "
-    "When an app filter is configured, pass app=<name> to narrow search_code. "
-    "Cite returned file paths in your answer. "
-    "If a tool returns a Qdrant lock error, tell the user to stop indexing "
-    "or switch qdrant.mode to server."
+DEFAULT_MCP_INSTRUCTIONS = """You have access to a private RAG index for this workspace (requirements/docs + code).
+
+Workflow (mandatory):
+1. Call index_status before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index.
+2. For scoped app work, call list_sources (or use known apps) and pass app=<name> to code tools.
+3. Before implementing a change: call get_context_pack(task) or impact_of_change(change). Do not invent architecture from memory.
+4. When a requirement ID or requirement text is given: call trace_requirement first.
+5. For PR/review quality: use prompt pr-review or call find_gaps on the affected area; require explicit requirement→code→test links; state gaps clearly.
+6. Prefer search_knowledge for docs/architecture and search_code for implementation details when you need targeted follow-ups after a context pack.
+
+Rules:
+- Cite file paths (and line ranges when present) from tool results.
+- If scores are weak or tools return no hits, say so and ask for a better query or re-index — do not guess.
+- On Qdrant lock errors: tell the user to stop the indexer or switch qdrant.mode to server (team: prefer server mode).
+- Do not claim the index is complete coverage; find_gaps is heuristic."""
+
+DEFAULT_REQUIREMENT_ID_PATTERNS: tuple[str, ...] = (
+    r"REQ-\d+",
+    r"KR-\d+",
+    r"US-\d+",
 )
 
 
@@ -115,12 +127,18 @@ class IndexConfig:
         default_factory=lambda: list(DEFAULT_DOCUMENTATION_PREFIXES)
     )
     ignore_dirs: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE_DIRS))
+    requirement_id_patterns: list[str] = field(
+        default_factory=lambda: list(DEFAULT_REQUIREMENT_ID_PATTERNS)
+    )
 
 
 @dataclass
 class SearchConfig:
     top_k: int = 8
     score_threshold: float = 0.2
+    # Hybrid re-rank: final = vector_weight * vector + lexical_weight * lexical
+    vector_weight: float = 0.7
+    lexical_weight: float = 0.3
 
 
 @dataclass
@@ -197,7 +215,13 @@ def _merge_index_config(data: dict[str, Any] | None) -> IndexConfig:
         if key in data:
             kwargs[key] = data[key]
 
-    for list_key in ("knowledge", "code", "documentation_prefixes", "ignore_dirs"):
+    for list_key in (
+        "knowledge",
+        "code",
+        "documentation_prefixes",
+        "ignore_dirs",
+        "requirement_id_patterns",
+    ):
         if list_key in data and data[list_key] is not None:
             kwargs[list_key] = [str(x) for x in data[list_key]]
 
@@ -246,6 +270,8 @@ def _overlay_env(config: Config) -> Config:
         "RAG_INDEX_STATUS_FILE": ("index", "status_file", str),
         "RAG_SEARCH_TOP_K": ("search", "top_k", int),
         "RAG_SEARCH_SCORE_THRESHOLD": ("search", "score_threshold", float),
+        "RAG_SEARCH_VECTOR_WEIGHT": ("search", "vector_weight", float),
+        "RAG_SEARCH_LEXICAL_WEIGHT": ("search", "lexical_weight", float),
         "RAG_MCP_NAME": ("mcp", "name", str),
         "RAG_LOG_LEVEL": ("log_level", None, str),
     }

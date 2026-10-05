@@ -11,7 +11,7 @@ import sys
 from dotenv import load_dotenv
 
 from rag.config import PACKAGE_ROOT, load_config
-from rag.indexer.run import run_index, status_report
+from rag.indexer.run import run_index, run_index_files, status_report
 from rag.retrieval.search import search_code, search_knowledge
 from rag.store import QdrantLockError
 
@@ -25,7 +25,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("index", help="Full rebuild of the Qdrant collection")
+    index_parser = sub.add_parser("index", help="Full rebuild of the Qdrant collection")
+    index_parser.add_argument(
+        "--files",
+        nargs="+",
+        default=None,
+        help="Partial upsert for repo-relative paths (does not recreate collection)",
+    )
     sub.add_parser("status", help="Show index/collection status")
 
     search = sub.add_parser("search", help="Debug search against the index")
@@ -40,6 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--app",
         default=None,
         help="Optional app filter (must match a configured index.apps name)",
+    )
+    search.add_argument(
+        "--path-prefix",
+        default=None,
+        help="Optional repo-relative path prefix filter",
     )
     search.add_argument("--top-k", type=int, default=None)
     return parser
@@ -60,8 +71,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "index":
         try:
-            status = run_index(config)
+            if args.files:
+                status = run_index_files(config, args.files)
+            else:
+                status = run_index(config)
         except QdrantLockError as exc:
+            logging.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            return 1
+        except RuntimeError as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
             return 1
@@ -81,9 +99,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "search":
         try:
             if args.mode == "knowledge":
-                print(search_knowledge(config, args.query, top_k=args.top_k))
+                print(
+                    search_knowledge(
+                        config,
+                        args.query,
+                        top_k=args.top_k,
+                        path_prefix=args.path_prefix,
+                    )
+                )
             else:
-                print(search_code(config, args.query, app=args.app, top_k=args.top_k))
+                print(
+                    search_code(
+                        config,
+                        args.query,
+                        app=args.app,
+                        top_k=args.top_k,
+                        path_prefix=args.path_prefix,
+                    )
+                )
         except QdrantLockError as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
