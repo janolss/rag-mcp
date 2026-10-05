@@ -1,4 +1,4 @@
-"""FastMCP server exposing RAG tools, resources, and prompts."""
+"""MCP server exposing RAG tools, resources, and prompts."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 import signal
 
 from dotenv import load_dotenv
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from rag import mcp_prompts
 from rag.config import PACKAGE_ROOT, load_config
@@ -34,7 +34,7 @@ logging.basicConfig(
 
 runtime = RagRuntime(config)
 
-mcp = FastMCP(
+mcp = MCPServer(
     config.mcp.name,
     instructions=config.mcp.instructions,
 )
