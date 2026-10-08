@@ -8,6 +8,7 @@
     "rag:index": ".venv/bin/python -m rag.cli --config config.yaml index",
     "rag:status": ".venv/bin/python -m rag.cli --config config.yaml status",
     "rag:mcp": ".venv/bin/python -m rag.mcp_server",
+    "rag:mcp:http": ".venv/bin/python -m rag.mcp_server --transport http --host 127.0.0.1 --port 8000",
     "rag:test": ".venv/bin/python -m pytest tests/ -v",
     "package": "bash scripts/package.sh"
   }

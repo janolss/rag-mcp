@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import signal
+import sys
 
 from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
 
 from rag import mcp_prompts
-from rag.config import PACKAGE_ROOT, Config, load_config, resolve_mcp_instructions
+from rag.config import (
+    PACKAGE_ROOT,
+    Config,
+    load_config,
+    mcp_public_url,
+    mcp_run_kwargs,
+    normalize_mcp_transport,
+    resolve_mcp_instructions,
+)
+from rag.mcp_http import endpoint_urls, run_http
 from rag.retrieval import search as retrieval
 from rag.retrieval.context_pack import get_context_pack as _get_context_pack
 from rag.retrieval.impact import find_gaps as _find_gaps
@@ -308,8 +319,62 @@ runtime = RagRuntime(config)
 mcp = create_mcp_server(config, runtime)
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Workspace RAG MCP server")
+    parser.add_argument(
+        "--config",
+        default=os.environ.get("RAG_CONFIG", "config.yaml"),
+        help="Path to config.yaml (relative to package root unless absolute)",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http", "sse", "http", "both", "dual"],
+        default=None,
+        help="stdio | streamable-http (/mcp) | sse | http (both /mcp and /sse)",
+    )
+    parser.add_argument("--host", default=None, help="HTTP bind host (default 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=None, help="HTTP bind port (default 8000)")
+    parser.add_argument(
+        "--path",
+        default=None,
+        help="HTTP mount path (default /mcp or /sse depending on transport)",
+    )
+    return parser
+
+
+def apply_cli_overrides(cfg: Config, args: argparse.Namespace) -> Config:
+    """Apply CLI transport flags onto an already-loaded config (mutates mcp)."""
+    if args.transport is not None:
+        cfg.mcp.transport = normalize_mcp_transport(args.transport)
+    if args.host is not None:
+        cfg.mcp.host = args.host.strip() or cfg.mcp.host
+    if args.port is not None:
+        cfg.mcp.port = int(args.port)
+    if args.path is not None:
+        cfg.mcp.path = args.path.strip()
+    return cfg
+
+
+def main(argv: list[str] | None = None) -> None:
+    global config, runtime, mcp
+
+    parser = _build_arg_parser()
+    args = parser.parse_args(argv)
+
+    # Reload when --config differs from module-level default
+    requested = args.config
+    current = os.environ.get("RAG_CONFIG", "config.yaml")
+    if requested != current:
+        config = load_config(requested)
+        runtime = RagRuntime(config)
+        mcp = create_mcp_server(config, runtime)
+
+    apply_cli_overrides(config, args)
+    # Rebuild server if transport-related instructions unchanged but name/caps same —
+    # tools already registered; only run kwargs change. No rebuild needed.
+
     warmup_error = runtime.try_warmup()
+    url = mcp_public_url(config)
     if warmup_error:
         logger.warning(
             "Starting MCP without an open Qdrant connection (%s). "
@@ -318,16 +383,32 @@ def main() -> None:
         )
     else:
         logger.info(
-            "Starting %s MCP server (collection=%s, mode=%s, capabilities=%s)",
+            "Starting %s MCP server (collection=%s, mode=%s, transport=%s, capabilities=%s%s)",
             config.mcp.name,
             config.qdrant.collection,
             config.qdrant.mode,
+            config.mcp.transport,
             {
                 "knowledge": config.mcp.capabilities.knowledge,
                 "code": config.mcp.capabilities.code,
                 "lis": config.mcp.capabilities.lis,
             },
+            f", url={url}" if url else "",
         )
+
+    transport = normalize_mcp_transport(config.mcp.transport)
+    if transport != "stdio":
+        urls = endpoint_urls(config)
+        print("MCP HTTP endpoints:", file=sys.stderr)
+        for kind, endpoint in urls.items():
+            print(f"  {kind}: {endpoint}", file=sys.stderr)
+        if "streamable-http" in urls:
+            print(
+                f"→ Prefer for modern URL clients: {urls['streamable-http']}",
+                file=sys.stderr,
+            )
+        elif url:
+            print(f"→ SSE clients: GET {url} (POST messages to /messages/)", file=sys.stderr)
 
     def _shutdown(signum: int, _frame) -> None:
         logger.info("Received signal %s; closing Qdrant", signum)
@@ -340,7 +421,11 @@ def main() -> None:
             # Signals may be unavailable in some embed contexts
             pass
 
-    mcp.run()
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        # Custom HTTP runner: dual mount + root info + stateless_http defaults
+        run_http(mcp, config)
 
 
 if __name__ == "__main__":

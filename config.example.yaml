@@ -6,6 +6,15 @@
 
 mcp:
   name: "workspace-rag"
+  # stdio (Cursor) | streamable-http (/mcp) | sse (/sse) | http (both on one port)
+  # CLI: npm run rag:mcp:http  →  http://127.0.0.1:8000/mcp  (and /sse)
+  # Modern URL clients: use /mcp. Legacy SSE: GET /sse, POST /messages/
+  transport: "stdio"
+  host: "127.0.0.1"
+  port: 8000
+  stateless_http: true
+  # path: "/mcp"   # streamable-http / sse only (ignored for dual http)
+  # message_path: "/messages/"
   # Toggle which tool surfaces (and index buckets) are active.
   # lis=false by default — enable when index.lis globs point at a LIS markdown mirror.
   capabilities:

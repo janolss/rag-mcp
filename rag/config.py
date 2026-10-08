@@ -132,6 +132,16 @@ class McpConfig:
     name: str = "workspace-rag"
     instructions: str = DEFAULT_MCP_INSTRUCTIONS
     capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
+    # stdio | streamable-http | sse | http (both /mcp + /sse on one port)
+    transport: str = "stdio"
+    host: str = "127.0.0.1"
+    port: int = 8000
+    # Mount path: /mcp for streamable-http, /sse for sse (ignored for dual http)
+    path: str = ""
+    # SSE POST endpoint (sse / dual http)
+    message_path: str = "/messages/"
+    # Prefer True for URL clients that struggle with session headers
+    stateless_http: bool = True
 
 
 @dataclass
@@ -247,6 +257,75 @@ def resolve_mcp_instructions(config: Config) -> str:
     return "\n\n".join(parts)
 
 
+MCP_TRANSPORTS: frozenset[str] = frozenset(
+    {"stdio", "streamable-http", "sse", "http"}
+)
+
+
+def normalize_mcp_transport(value: str | None) -> str:
+    transport = (value or "stdio").strip().lower()
+    # Aliases
+    if transport in {"streamable_http", "streamablehttp"}:
+        transport = "streamable-http"
+    if transport in {"both", "dual"}:
+        transport = "http"
+    if transport not in MCP_TRANSPORTS:
+        raise ValueError(
+            f"Unsupported mcp.transport: {value!r} "
+            f"(use stdio|streamable-http|sse|http)"
+        )
+    return transport
+
+
+def mcp_http_path(config: Config) -> str:
+    """Resolved mount path for single-protocol HTTP transports."""
+    explicit = (config.mcp.path or "").strip()
+    if explicit:
+        return explicit if explicit.startswith("/") else f"/{explicit}"
+    transport = normalize_mcp_transport(config.mcp.transport)
+    if transport == "sse":
+        return "/sse"
+    return "/mcp"
+
+
+def mcp_public_url(config: Config) -> str | None:
+    """Primary client-facing URL for HTTP transports; None for stdio.
+
+    For dual ``http`` transport this is the streamable-http URL (/mcp).
+    """
+    transport = normalize_mcp_transport(config.mcp.transport)
+    if transport == "stdio":
+        return None
+    if transport == "http":
+        return f"http://{config.mcp.host}:{int(config.mcp.port)}/mcp"
+    return f"http://{config.mcp.host}:{int(config.mcp.port)}{mcp_http_path(config)}"
+
+
+def mcp_run_kwargs(config: Config) -> dict[str, Any]:
+    """Kwargs for MCPServer.run() for single-protocol transports (not dual http)."""
+    transport = normalize_mcp_transport(config.mcp.transport)
+    if transport == "stdio":
+        return {"transport": "stdio"}
+    if transport == "http":
+        raise ValueError("Dual http transport uses rag.mcp_http.run_http, not mcp.run()")
+    kwargs: dict[str, Any] = {
+        "transport": transport,
+        "host": config.mcp.host,
+        "port": int(config.mcp.port),
+    }
+    path = mcp_http_path(config)
+    if transport == "streamable-http":
+        kwargs["streamable_http_path"] = path
+        kwargs["stateless_http"] = bool(config.mcp.stateless_http)
+    else:
+        kwargs["sse_path"] = path
+        message_path = (config.mcp.message_path or "/messages/").strip() or "/messages/"
+        if not message_path.startswith("/"):
+            message_path = f"/{message_path}"
+        kwargs["message_path"] = message_path
+    return kwargs
+
+
 def _merge_dataclass(cls: type, data: dict[str, Any] | None) -> Any:
     if not data:
         return cls()
@@ -336,7 +415,23 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
     capabilities = _merge_capabilities(
         data.get("capabilities") if isinstance(data.get("capabilities"), dict) else None
     )
-    return McpConfig(name=name, instructions=instructions, capabilities=capabilities)
+    transport = normalize_mcp_transport(str(data.get("transport", defaults.transport)))
+    host = str(data.get("host", defaults.host)).strip() or defaults.host
+    port = int(data.get("port", defaults.port))
+    path = str(data.get("path", defaults.path) or "")
+    message_path = str(data.get("message_path", defaults.message_path) or defaults.message_path)
+    stateless_http = _as_bool(data.get("stateless_http"), defaults.stateless_http)
+    return McpConfig(
+        name=name,
+        instructions=instructions,
+        capabilities=capabilities,
+        transport=transport,
+        host=host,
+        port=port,
+        path=path,
+        message_path=message_path,
+        stateless_http=stateless_http,
+    )
 
 
 def _overlay_env(config: Config) -> Config:
@@ -368,6 +463,11 @@ def _overlay_env(config: Config) -> Config:
         "RAG_SEARCH_VECTOR_WEIGHT": ("search", "vector_weight", float),
         "RAG_SEARCH_LEXICAL_WEIGHT": ("search", "lexical_weight", float),
         "RAG_MCP_NAME": ("mcp", "name", str),
+        "RAG_MCP_TRANSPORT": ("mcp", "transport", str),
+        "RAG_MCP_HOST": ("mcp", "host", str),
+        "RAG_MCP_PORT": ("mcp", "port", int),
+        "RAG_MCP_PATH": ("mcp", "path", str),
+        "RAG_MCP_MESSAGE_PATH": ("mcp", "message_path", str),
         "RAG_LOG_LEVEL": ("log_level", None, str),
     }
 
@@ -391,6 +491,9 @@ def _overlay_env(config: Config) -> Config:
             cap_name,
             _as_bool(raw, getattr(config.mcp.capabilities, cap_name)),
         )
+
+    # Normalize transport after env overlay (aliases + validation)
+    config.mcp.transport = normalize_mcp_transport(config.mcp.transport)
     return config
 
 
