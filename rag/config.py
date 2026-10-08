@@ -64,11 +64,22 @@ Rules:
 - On Qdrant lock errors: tell the user to stop the indexer or switch qdrant.mode to server (team: prefer server mode).
 - Do not claim the index is complete coverage; find_gaps is heuristic."""
 
+LIS_MCP_INSTRUCTIONS_BLOCK = """
+LIS / ledningssystem (organizational governance):
+- Use search_lis for policies, riktlinjer, anvisningar, instruktioner, mallar, and process guidance that apply across the organization (not app-specific technical docs).
+- Prefer status=approved; treat draft as non-binding.
+- Binding order: policy > riktlinje > anvisning > instruktion > mall/vägledning/checklista.
+- Filter with process_area (ledning|behov|planera|utveckla|leverera|stod), domain, and doc_type when known.
+- Cite document_id, title, doc_type, and file/path from results. Do not invent ids.
+""".strip()
+
 DEFAULT_REQUIREMENT_ID_PATTERNS: tuple[str, ...] = (
     r"REQ-\d+",
     r"KR-\d+",
     r"US-\d+",
 )
+
+SOURCE_BUCKETS: frozenset[str] = frozenset({"knowledge", "code", "lis"})
 
 
 @dataclass
@@ -108,20 +119,32 @@ class AppRule:
 
 
 @dataclass
+class CapabilitiesConfig:
+    """Which retrieval surfaces are active (tools + index buckets)."""
+
+    knowledge: bool = True
+    code: bool = True
+    lis: bool = False
+
+
+@dataclass
 class McpConfig:
     name: str = "workspace-rag"
     instructions: str = DEFAULT_MCP_INSTRUCTIONS
+    capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
 
 
 @dataclass
 class IndexConfig:
     repo_root: str = ".."
-    sources: str = "all"  # knowledge | code | all
+    # knowledge | code | lis | all | comma-separated (e.g. knowledge,lis)
+    sources: str = "all"
     chunk_size: int = 1200
     chunk_overlap: int = 150
     status_file: str = "./index_status.json"
     knowledge: list[str] = field(default_factory=lambda: list(DEFAULT_KNOWLEDGE_GLOBS))
     code: list[str] = field(default_factory=lambda: list(DEFAULT_CODE_GLOBS))
+    lis: list[str] = field(default_factory=list)
     apps: list[AppRule] = field(default_factory=list)
     documentation_prefixes: list[str] = field(
         default_factory=lambda: list(DEFAULT_DOCUMENTATION_PREFIXES)
@@ -179,6 +202,50 @@ class Config:
     def app_names(self) -> set[str]:
         return {rule.name.strip().lower() for rule in self.index.apps if rule.name}
 
+    def enabled_buckets(self) -> set[str]:
+        """Intersection of index.sources and mcp.capabilities."""
+        wanted = parse_sources_mode(self.index.sources)
+        caps = self.mcp.capabilities
+        if not caps.knowledge:
+            wanted.discard("knowledge")
+        if not caps.code:
+            wanted.discard("code")
+        if not caps.lis:
+            wanted.discard("lis")
+        return wanted
+
+
+def parse_sources_mode(mode: str | None) -> set[str]:
+    """Parse index.sources into a set of buckets (knowledge|code|lis)."""
+    raw = (mode or "all").strip().lower()
+    if raw == "all":
+        return set(SOURCE_BUCKETS)
+    parts = {p.strip() for p in raw.split(",") if p.strip()}
+    if not parts:
+        raise ValueError("index.sources is empty (use knowledge|code|lis|all)")
+    unknown = parts - SOURCE_BUCKETS
+    if unknown:
+        raise ValueError(
+            f"Unsupported index.sources value: {mode!r} "
+            f"(use knowledge|code|lis|all or a comma-separated subset)"
+        )
+    return parts
+
+
+def resolve_mcp_instructions(config: Config) -> str:
+    """
+    Build MCP instructions from config.
+
+    Uses mcp.instructions as the base. When lis is enabled and the base does not
+    already mention search_lis, append the LIS guidance block.
+    """
+    base = (config.mcp.instructions or DEFAULT_MCP_INSTRUCTIONS).strip()
+    caps = config.mcp.capabilities
+    parts = [base]
+    if caps.lis and "search_lis" not in base:
+        parts.append(LIS_MCP_INSTRUCTIONS_BLOCK)
+    return "\n\n".join(parts)
+
 
 def _merge_dataclass(cls: type, data: dict[str, Any] | None) -> Any:
     if not data:
@@ -218,6 +285,7 @@ def _merge_index_config(data: dict[str, Any] | None) -> IndexConfig:
     for list_key in (
         "knowledge",
         "code",
+        "lis",
         "documentation_prefixes",
         "ignore_dirs",
         "requirement_id_patterns",
@@ -231,6 +299,30 @@ def _merge_index_config(data: dict[str, Any] | None) -> IndexConfig:
     return IndexConfig(**kwargs)
 
 
+def _merge_capabilities(data: dict[str, Any] | None) -> CapabilitiesConfig:
+    if not data:
+        return CapabilitiesConfig()
+    defaults = CapabilitiesConfig()
+    return CapabilitiesConfig(
+        knowledge=_as_bool(data.get("knowledge"), defaults.knowledge),
+        code=_as_bool(data.get("code"), defaults.code),
+        lis=_as_bool(data.get("lis"), defaults.lis),
+    )
+
+
+def _as_bool(value: Any, default: bool) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
     if not data:
         return McpConfig()
@@ -241,7 +333,10 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
         instructions = DEFAULT_MCP_INSTRUCTIONS
     else:
         instructions = str(instructions).strip() or DEFAULT_MCP_INSTRUCTIONS
-    return McpConfig(name=name, instructions=instructions)
+    capabilities = _merge_capabilities(
+        data.get("capabilities") if isinstance(data.get("capabilities"), dict) else None
+    )
+    return McpConfig(name=name, instructions=instructions, capabilities=capabilities)
 
 
 def _overlay_env(config: Config) -> Config:
@@ -285,6 +380,17 @@ def _overlay_env(config: Config) -> Config:
             setattr(config, section, value)
         else:
             setattr(getattr(config, section), field_name, value)
+
+    # Capability toggles (RAG_CAPABILITY_KNOWLEDGE / _CODE / _LIS)
+    for cap_name in ("knowledge", "code", "lis"):
+        raw = os.environ.get(f"RAG_CAPABILITY_{cap_name.upper()}")
+        if raw is None:
+            continue
+        setattr(
+            config.mcp.capabilities,
+            cap_name,
+            _as_bool(raw, getattr(config.mcp.capabilities, cap_name)),
+        )
     return config
 
 

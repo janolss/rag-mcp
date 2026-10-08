@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from rag.config import PACKAGE_ROOT, load_config
 from rag.indexer.run import run_index, run_index_files, status_report
-from rag.retrieval.search import search_code, search_knowledge
+from rag.retrieval.search import search_code, search_knowledge, search_lis
 from rag.store import QdrantLockError
 
 
@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--files",
         nargs="+",
         default=None,
-        help="Partial upsert for repo-relative paths (does not recreate collection)",
+        help="Partial upsert for repo-relative or absolute paths (does not recreate collection)",
     )
     sub.add_parser("status", help="Show index/collection status")
 
@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("query", help="Search query")
     search.add_argument(
         "--mode",
-        choices=["knowledge", "code"],
+        choices=["knowledge", "code", "lis"],
         default="knowledge",
         help="Which tool surface to emulate",
     )
@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional repo-relative path prefix filter",
     )
+    search.add_argument("--doc-type", default=None, help="LIS doc_type filter")
+    search.add_argument("--process-area", default=None, help="LIS process_area filter")
+    search.add_argument("--domain", default=None, help="LIS domain filter")
+    search.add_argument("--status", default=None, help="LIS status filter")
     search.add_argument("--top-k", type=int, default=None)
     return parser
 
@@ -105,6 +109,19 @@ def main(argv: list[str] | None = None) -> int:
                         args.query,
                         top_k=args.top_k,
                         path_prefix=args.path_prefix,
+                    )
+                )
+            elif args.mode == "lis":
+                print(
+                    search_lis(
+                        config,
+                        args.query,
+                        top_k=args.top_k,
+                        path_prefix=args.path_prefix,
+                        doc_type=args.doc_type,
+                        process_area=args.process_area,
+                        domain=args.domain,
+                        status=args.status,
                     )
                 )
             else:

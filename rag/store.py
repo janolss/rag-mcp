@@ -125,7 +125,17 @@ class VectorStore:
         logger.info("Created collection '%s' (dim=%d)", self.collection, vector_size)
         # Payload indexes only apply to server Qdrant; local/memory modes ignore them.
         if self._config.qdrant.mode == "server":
-            for field_name in ("type", "app", "file", "requirement_ids"):
+            for field_name in (
+                "type",
+                "app",
+                "file",
+                "requirement_ids",
+                "document_id",
+                "doc_type",
+                "process_area",
+                "domain",
+                "status",
+            ):
                 self.client.create_payload_index(
                     collection_name=self.collection,
                     field_name=field_name,
@@ -155,6 +165,17 @@ class VectorStore:
                 "content": chunk["content"],
                 "requirement_ids": list(chunk.get("requirement_ids") or []),
             }
+            for lis_key in (
+                "document_id",
+                "doc_type",
+                "process_area",
+                "domain",
+                "status",
+                "title",
+            ):
+                value = chunk.get(lis_key)
+                if value:
+                    payload[lis_key] = value
             if chunk.get("start_line") is not None:
                 payload["start_line"] = chunk["start_line"]
             if chunk.get("end_line") is not None:
@@ -213,6 +234,10 @@ class VectorStore:
         type_filter: list[str] | None = None,
         app_filter: str | None = None,
         requirement_id: str | None = None,
+        doc_type: str | None = None,
+        process_area: str | None = None,
+        domain: str | None = None,
+        status: str | None = None,
     ) -> list[models.ScoredPoint]:
         if not self.collection_exists():
             raise RuntimeError(
@@ -223,6 +248,10 @@ class VectorStore:
             type_filter=type_filter,
             app_filter=app_filter,
             requirement_id=requirement_id,
+            doc_type=doc_type,
+            process_area=process_area,
+            domain=domain,
+            status=status,
         )
         results = self.client.query_points(
             collection_name=self.collection,
@@ -271,6 +300,10 @@ def build_type_app_filter(
     type_filter: list[str] | None = None,
     app_filter: str | None = None,
     requirement_id: str | None = None,
+    doc_type: str | None = None,
+    process_area: str | None = None,
+    domain: str | None = None,
+    status: str | None = None,
 ) -> models.Filter | None:
     """Pure helper used by tests and callers that need the filter object."""
     must: list[models.FieldCondition] = []
@@ -295,4 +328,17 @@ def build_type_app_filter(
                 match=models.MatchValue(value=requirement_id),
             )
         )
+    for key, value in (
+        ("doc_type", doc_type),
+        ("process_area", process_area),
+        ("domain", domain),
+        ("status", status),
+    ):
+        if value:
+            must.append(
+                models.FieldCondition(
+                    key=key,
+                    match=models.MatchValue(value=value),
+                )
+            )
     return models.Filter(must=must) if must else None

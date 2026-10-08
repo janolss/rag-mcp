@@ -6,6 +6,12 @@
 
 mcp:
   name: "workspace-rag"
+  # Toggle which tool surfaces (and index buckets) are active.
+  # lis=false by default — enable when index.lis globs point at a LIS markdown mirror.
+  capabilities:
+    knowledge: true
+    code: true
+    lis: false
   instructions: |
     You have access to a private RAG index for this workspace (requirements/docs + code).
 
@@ -58,7 +64,8 @@ qdrant:
 index:
   # Relative to this package root (rag-mcp/). ".." = parent workspace.
   repo_root: ".."
-  # knowledge | code | all
+  # knowledge | code | lis | all | comma-separated (e.g. knowledge,lis)
+  # Effective buckets = sources ∩ mcp.capabilities
   sources: "all"
   chunk_size: 1200
   chunk_overlap: 150
@@ -80,6 +87,13 @@ index:
     - "apps/**/*.js"
     - "apps/**/*.py"
     - "apps/**/*.ejs"
+
+  # Organizational LIS / ledningssystem (markdown mirror). Absolute paths allowed.
+  # Enable mcp.capabilities.lis: true and point at a synced knowledge/docs tree.
+  # Example:
+  # lis:
+  #   - "/absolute/path/to/lis-knowledge/docs/**/*.md"
+  lis: []
 
   # Optional: path prefix → app label for search_code(app=...)
   apps:

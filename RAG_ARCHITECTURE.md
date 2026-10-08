@@ -13,18 +13,20 @@ Help an MCP-compatible agent answer:
 ## Pipeline
 
 ```text
-configured knowledge + code globs (relative to workspace)
-        → chunk (+ requirement_ids, start/end line)
+configured knowledge + code + optional lis globs
+        → chunk (+ requirement_ids, start/end line; LIS frontmatter → payload)
         → embeddings (OpenAI-compatible or Ollama HTTP)
         → Qdrant (local file by default; server for teams)
-        → MCP tools / resources / prompts
+        → MCP tools / resources / prompts (registered per mcp.capabilities)
 ```
 
 Provider-agnostic embeddings: configure `embedding.base_url` + `model` against
 Ollama, LM Studio, Paddock, or any OpenAI-compatible `/v1/embeddings` server.
 
-Sources, app labels, collection name, requirement ID patterns, and MCP
-instructions are **config-driven** (`config.yaml` / `config.example.yaml`).
+Sources, capabilities, app labels, collection name, requirement ID patterns, and
+MCP instructions are **config-driven** (`config.yaml` / `config.example.yaml`).
+`mcp.capabilities` gates both indexing buckets and which tools are registered.
+LIS is organizational governance (`type=lis`); knowledge remains workspace docs.
 
 Typical layout:
 
@@ -39,9 +41,10 @@ my-workspace/
 
 - `index_status()` — collection freshness, model, `git_sha`, stale hints
 - `list_sources()` — apps, globs, patterns
-- `search_knowledge(query, path_prefix?)` — documentation
-- `search_code(query, app?, path_prefix?)` — source/tests
-- `get_context_pack(task, app?)` — structured docs + code pack
+- `search_knowledge(query, path_prefix?)` — documentation (if capability on)
+- `search_code(query, app?, path_prefix?)` — source/tests (if capability on)
+- `search_lis(query, doc_type?, process_area?, domain?, status?)` — LIS (if capability on)
+- `get_context_pack(task, app?)` — structured pack from enabled sources
 - `trace_requirement(requirement, app?)` — ID/text → docs + code
 - `impact_of_change(change, app?, path_prefix?)` — impact sections
 - `find_gaps(area, app?)` — heuristic coverage gaps

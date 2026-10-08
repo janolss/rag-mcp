@@ -34,6 +34,17 @@ def format_hits(hits: list[Any]) -> str:
         req_ids = payload.get("requirement_ids") or []
         if req_ids:
             parts.append(f"requirement_ids: {','.join(req_ids)}")
+        for lis_key in (
+            "document_id",
+            "doc_type",
+            "process_area",
+            "domain",
+            "status",
+            "title",
+        ):
+            value = payload.get(lis_key)
+            if value:
+                parts.append(f"{lis_key}: {value}")
         score = getattr(hit, "score", None)
         if score is not None:
             parts.append(f"score: {float(score):.3f}")
@@ -106,6 +117,10 @@ def search_hits(
     app_filter: str | None = None,
     path_prefix: str | None = None,
     requirement_id: str | None = None,
+    doc_type: str | None = None,
+    process_area: str | None = None,
+    domain: str | None = None,
+    status: str | None = None,
     top_k: int | None = None,
     score_threshold: float | None = None,
     store: VectorStore | None = None,
@@ -135,6 +150,10 @@ def search_hits(
             type_filter=type_filter,
             app_filter=app_filter,
             requirement_id=requirement_id,
+            doc_type=doc_type,
+            process_area=process_area,
+            domain=domain,
+            status=status,
         )
         hits = apply_path_prefix(hits, path_prefix)
         return rerank_hits(
@@ -200,6 +219,42 @@ def search_code(
     )
 
 
+def search_lis(
+    config: Config,
+    query: str,
+    *,
+    top_k: int | None = None,
+    path_prefix: str | None = None,
+    doc_type: str | None = None,
+    process_area: str | None = None,
+    domain: str | None = None,
+    status: str | None = None,
+    store: VectorStore | None = None,
+    embedder: EmbeddingClient | None = None,
+) -> str:
+    return _search(
+        config,
+        query,
+        type_filter=["lis"],
+        app_filter=None,
+        path_prefix=path_prefix,
+        doc_type=_optional_str(doc_type),
+        process_area=_optional_str(process_area),
+        domain=_optional_str(domain),
+        status=_optional_str(status),
+        top_k=top_k,
+        store=store,
+        embedder=embedder,
+    )
+
+
+def _optional_str(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
 def _search(
     config: Config,
     query: str,
@@ -210,6 +265,10 @@ def _search(
     top_k: int | None,
     store: VectorStore | None,
     embedder: EmbeddingClient | None,
+    doc_type: str | None = None,
+    process_area: str | None = None,
+    domain: str | None = None,
+    status: str | None = None,
 ) -> str:
     query = (query or "").strip()
     if not query:
@@ -222,6 +281,10 @@ def _search(
             type_filter=type_filter,
             app_filter=app_filter,
             path_prefix=path_prefix,
+            doc_type=doc_type,
+            process_area=process_area,
+            domain=domain,
+            status=status,
             top_k=top_k,
             store=store,
             embedder=embedder,

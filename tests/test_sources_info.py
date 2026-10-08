@@ -1,6 +1,14 @@
 """Unit tests for list_sources formatting."""
 
-from rag.config import AppRule, Config, IndexConfig, QdrantConfig, DEFAULT_MCP_INSTRUCTIONS
+from rag.config import (
+    AppRule,
+    CapabilitiesConfig,
+    Config,
+    IndexConfig,
+    McpConfig,
+    QdrantConfig,
+    DEFAULT_MCP_INSTRUCTIONS,
+)
 from rag.retrieval.sources_info import list_sources, list_sources_payload
 
 
@@ -11,14 +19,19 @@ def test_list_sources_includes_apps_and_globs():
             repo_root="/tmp/workspace",
             knowledge=["docs/**/*.md"],
             code=["apps/**/*.ts"],
+            lis=["/tmp/lis/**/*.md"],
             apps=[AppRule(prefix="apps/web/", name="web")],
             requirement_id_patterns=[r"REQ-\d+"],
         ),
+        mcp=McpConfig(capabilities=CapabilitiesConfig(lis=True)),
     )
     payload = list_sources_payload(config)
     assert payload["collection"] == "src_test"
     assert payload["qdrant_mode"] == "memory"
     assert payload["knowledge_globs"] == ["docs/**/*.md"]
+    assert payload["lis_globs"] == ["/tmp/lis/**/*.md"]
+    assert payload["capabilities"]["lis"] is True
+    assert "lis" in payload["enabled_buckets"]
     assert payload["apps"] == [{"prefix": "apps/web/", "name": "web"}]
     assert payload["requirement_id_patterns"] == [r"REQ-\d+"]
 

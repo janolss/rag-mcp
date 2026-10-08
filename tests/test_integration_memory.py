@@ -7,12 +7,28 @@ from pathlib import Path
 
 import pytest
 
-from rag.config import AppRule, Config, EmbeddingConfig, IndexConfig, QdrantConfig, SearchConfig
+from rag.config import (
+    AppRule,
+    CapabilitiesConfig,
+    Config,
+    EmbeddingConfig,
+    IndexConfig,
+    McpConfig,
+    QdrantConfig,
+    SearchConfig,
+)
 from rag.embeddings import EmbeddingClient
 from rag.indexer.run import build_chunks, build_chunks_for_files
 from rag.retrieval.context_pack import get_context_pack
 from rag.retrieval.impact import find_gaps, impact_of_change, looks_like_path
-from rag.retrieval.search import apply_path_prefix, lexical_score, rerank_hits, search_code, search_knowledge
+from rag.retrieval.search import (
+    apply_path_prefix,
+    lexical_score,
+    rerank_hits,
+    search_code,
+    search_knowledge,
+    search_lis,
+)
 from rag.retrieval.trace import trace_requirement
 from rag.store import VectorStore
 
@@ -253,3 +269,80 @@ def test_build_chunks_for_files(rag_config: Config):
     chunks = build_chunks_for_files(rag_config, ["apps/web/services/BookingService.ts"])
     assert chunks
     assert all(c["file"].endswith("BookingService.ts") for c in chunks)
+
+
+def test_lis_index_and_search(tmp_path: Path, sample_repo: Path):
+    lis_root = tmp_path / "lis-knowledge" / "docs" / "utveckla"
+    lis_root.mkdir(parents=True)
+    (lis_root / "anvisning-programvara.md").write_text(
+        """---
+id: utveckla-anvisning-programvara
+title: Anvisning Programvaruutveckling
+doc_type: anvisning
+process_area: utveckla
+domain: utveckla
+status: approved
+---
+# Programvaruutveckling
+
+Ändringshantering och release management ska följa anvisningen.
+""",
+        encoding="utf-8",
+    )
+
+    config = Config(
+        embedding=EmbeddingConfig(model="fake-model"),
+        qdrant=QdrantConfig(mode="memory", collection="test_lis_rag"),
+        index=IndexConfig(
+            repo_root=str(sample_repo),
+            sources="lis",
+            chunk_size=800,
+            chunk_overlap=80,
+            status_file=str(tmp_path / "lis_status.json"),
+            knowledge=[],
+            code=[],
+            lis=[str(tmp_path / "lis-knowledge" / "docs" / "**" / "*.md")],
+        ),
+        search=SearchConfig(top_k=5, score_threshold=0.0, vector_weight=0.7, lexical_weight=0.3),
+        mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=False, code=False, lis=True)),
+    )
+
+    chunks = build_chunks(config)
+    assert chunks
+    assert all(c["type"] == "lis" for c in chunks)
+    assert any(c.get("document_id") == "utveckla-anvisning-programvara" for c in chunks)
+    assert any(c.get("doc_type") == "anvisning" for c in chunks)
+    # Frontmatter stripped from embedded content
+    assert all("---" not in c["content"] or "id:" not in c["content"] for c in chunks)
+
+    embedder = FakeEmbedder()
+    store = VectorStore(config)
+    try:
+        vectors = embedder.embed_texts([c["content"] for c in chunks], for_query=False)
+        store.recreate_collection(len(vectors[0]))
+        store.upsert_chunks(chunks, vectors)
+
+        result = search_lis(
+            config,
+            "ändringshantering release",
+            process_area="utveckla",
+            doc_type="anvisning",
+            status="approved",
+            store=store,
+            embedder=embedder,
+        )
+        assert "No relevant results found." not in result
+        assert "document_id: utveckla-anvisning-programvara" in result
+        assert "doc_type: anvisning" in result
+
+        pack = get_context_pack(
+            config,
+            "release management",
+            store=store,
+            embedder=embedder,
+        )
+        assert "## LIS" in pack
+        assert "## Documentation" not in pack
+        assert "## Code" not in pack
+    finally:
+        store.close()

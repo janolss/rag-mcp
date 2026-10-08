@@ -12,32 +12,47 @@ from rag.config import Config
 from rag.embeddings import EmbeddingClient
 from rag.indexer.chunk_code import chunk_code
 from rag.indexer.chunk_markdown import chunk_markdown
+from rag.indexer.frontmatter import lis_fields_from_frontmatter, split_frontmatter
 from rag.indexer.git_info import git_head_sha
 from rag.indexer.line_ranges import attach_line_numbers
 from rag.indexer.metadata import metadata_from_path
 from rag.indexer.requirement_ids import extract_requirement_ids
-from rag.indexer.sources import selected_sources
-from rag.indexer.walk import read_text_file, walk_files
+from rag.indexer.sources import selected_sources_for_config
+from rag.indexer.walk import file_identity, read_text_file, walk_files
 from rag.store import VectorStore
 
 logger = logging.getLogger(__name__)
 
 
-def _chunk_file(config: Config, path: Path, rel: str) -> list[dict[str, Any]]:
-    meta = metadata_from_path(rel, config.index)
+def _chunk_file(
+    config: Config,
+    path: Path,
+    rel: str,
+    *,
+    bucket: str | None = None,
+) -> list[dict[str, Any]]:
+    meta = metadata_from_path(rel, config.index, bucket=bucket)
     text = read_text_file(path)
     if not text.strip():
         return []
 
-    if meta["type"] == "documentation" or path.suffix.lower() == ".md":
+    lis_fields: dict[str, str] = {}
+    body = text
+    if meta["type"] == "lis":
+        fm, body = split_frontmatter(text)
+        lis_fields = lis_fields_from_frontmatter(fm)
+        if not body.strip():
+            return []
+
+    if meta["type"] in {"documentation", "lis"} or path.suffix.lower() == ".md":
         pieces = chunk_markdown(
-            text,
+            body,
             chunk_size=config.index.chunk_size,
             chunk_overlap=config.index.chunk_overlap,
         )
     else:
         pieces = chunk_code(
-            text,
+            body,
             chunk_size=config.index.chunk_size,
             chunk_overlap=config.index.chunk_overlap,
         )
@@ -48,59 +63,100 @@ def _chunk_file(config: Config, path: Path, rel: str) -> list[dict[str, Any]]:
         content = piece["content"]
         section = piece.get("section")
         id_source = content if not section else f"{section}\n{content}"
-        chunks.append(
-            {
-                "type": meta["type"],
-                "app": meta["app"],
-                "file": meta["file"],
-                "language": meta["language"],
-                "section": section,
-                "chunk_index": index,
-                "content": content,
-                "requirement_ids": extract_requirement_ids(id_source, patterns),
-            }
-        )
-    attach_line_numbers(text, chunks)
+        chunk: dict[str, Any] = {
+            "type": meta["type"],
+            "app": meta["app"],
+            "file": meta["file"],
+            "language": meta["language"],
+            "section": section,
+            "chunk_index": index,
+            "content": content,
+            "requirement_ids": extract_requirement_ids(id_source, patterns),
+        }
+        chunk.update(lis_fields)
+        chunks.append(chunk)
+    # Line numbers relative to the text that was chunked (body without frontmatter for LIS)
+    attach_line_numbers(body, chunks)
     return chunks
 
 
 def build_chunks(config: Config) -> list[dict[str, Any]]:
     repo_root = config.repo_root_path
-    specs = selected_sources(config.index)
+    specs = selected_sources_for_config(config)
     files = walk_files(repo_root, specs, config.index.ignore_dirs)
     chunks: list[dict[str, Any]] = []
 
-    for path in files:
-        rel = path.relative_to(repo_root).as_posix()
-        chunks.extend(_chunk_file(config, path, rel))
+    for path, bucket in files:
+        rel = file_identity(path, repo_root)
+        chunks.extend(_chunk_file(config, path, rel, bucket=bucket))
 
     logger.info("Built %d chunks from %d files", len(chunks), len(files))
     return chunks
 
 
 def build_chunks_for_files(config: Config, rel_paths: Sequence[str]) -> list[dict[str, Any]]:
-    """Build chunks for explicit repo-relative paths (partial index)."""
+    """Build chunks for explicit paths (repo-relative or absolute)."""
     repo_root = config.repo_root_path
     chunks: list[dict[str, Any]] = []
     seen: set[str] = set()
 
     for raw in rel_paths:
-        rel = raw.replace("\\", "/").lstrip("./")
-        if not rel or rel in seen:
+        raw_norm = raw.replace("\\", "/").strip()
+        if not raw_norm:
             continue
-        seen.add(rel)
-        path = (repo_root / rel).resolve()
-        try:
-            path.relative_to(repo_root.resolve())
-        except ValueError as exc:
-            raise RuntimeError(f"Path escapes repo_root: {raw}") from exc
+        path = Path(raw_norm)
+        if path.is_absolute():
+            path = path.resolve()
+            identity = file_identity(path, repo_root)
+        else:
+            rel = raw_norm.lstrip("./")
+            path = (repo_root / rel).resolve()
+            try:
+                path.relative_to(repo_root.resolve())
+            except ValueError as exc:
+                raise RuntimeError(f"Path escapes repo_root: {raw}") from exc
+            identity = rel
+
+        if identity in seen:
+            continue
+        seen.add(identity)
         if not path.is_file():
-            logger.warning("Skipping missing file for partial index: %s", rel)
+            logger.warning("Skipping missing file for partial index: %s", identity)
             continue
-        chunks.extend(_chunk_file(config, path, rel))
+        # Infer lis bucket when path matches a configured lis glob identity prefix
+        bucket = _infer_bucket(config, identity, path)
+        chunks.extend(_chunk_file(config, path, identity, bucket=bucket))
 
     logger.info("Built %d chunks from %d requested files", len(chunks), len(seen))
     return chunks
+
+
+def _infer_bucket(config: Config, identity: str, path: Path) -> str | None:
+    """Best-effort bucket for partial index paths."""
+    from rag.indexer.walk import expand_glob
+
+    enabled = config.enabled_buckets()
+    resolved = path.resolve()
+    if "lis" in enabled and config.index.lis:
+        for pattern in config.index.lis:
+            if resolved in {p.resolve() for p in expand_glob(config.repo_root_path, pattern)}:
+                return "lis"
+        try:
+            resolved.relative_to(config.repo_root_path.resolve())
+        except ValueError:
+            # Explicit absolute path outside repo while LIS is enabled
+            return "lis"
+    if "knowledge" in enabled and (
+        identity.lower().endswith("readme.md")
+        or any(
+            identity.startswith(p if p.endswith("/") else f"{p}/")
+            for p in config.index.documentation_prefixes
+        )
+    ):
+        return "knowledge"
+    if "code" in enabled:
+        return "code"
+    return None
 
 
 def _status_base(config: Config, *, chunk_count: int, vector_size: int) -> dict[str, Any]:
@@ -111,6 +167,12 @@ def _status_base(config: Config, *, chunk_count: int, vector_size: int) -> dict[
         "collection": config.qdrant.collection,
         "qdrant_mode": config.qdrant.mode,
         "sources": config.index.sources,
+        "enabled_buckets": sorted(config.enabled_buckets()),
+        "capabilities": {
+            "knowledge": config.mcp.capabilities.knowledge,
+            "code": config.mcp.capabilities.code,
+            "lis": config.mcp.capabilities.lis,
+        },
         "chunk_count": chunk_count,
         "vector_size": vector_size,
         "repo_root": str(config.repo_root_path),

@@ -59,3 +59,15 @@ def test_unmatched_code_is_global():
     assert meta["type"] == "code"
     assert meta["app"] == "global"
     assert meta["language"] == "python"
+
+
+def test_lis_bucket_sets_type_lis():
+    meta = metadata_from_path(
+        "/data/lis/docs/utveckla/anvisning.md",
+        _index(),
+        bucket="lis",
+    )
+    assert meta["type"] == "lis"
+    assert meta["app"] == "global"
+    assert meta["language"] == "markdown"
+    assert meta["file"] == "/data/lis/docs/utveckla/anvisning.md"

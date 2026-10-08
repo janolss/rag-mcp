@@ -17,11 +17,17 @@ LANGUAGE_BY_SUFFIX = {
 }
 
 
-def metadata_from_path(rel_path: str, index: IndexConfig | None = None) -> dict[str, str | None]:
+def metadata_from_path(
+    rel_path: str,
+    index: IndexConfig | None = None,
+    *,
+    bucket: str | None = None,
+) -> dict[str, str | None]:
     """
-    Map a repo-relative path to type/app/language metadata.
+    Map a path identity to type/app/language metadata.
 
     Documentation: README / paths under configured documentation_prefixes.
+    LIS: bucket=\"lis\" → type=lis (organizational governance docs).
     App label: first matching apps[].prefix (longest match wins).
     Tests: any path segment named tests/test → type=test when under an app.
     """
@@ -32,6 +38,14 @@ def metadata_from_path(rel_path: str, index: IndexConfig | None = None) -> dict[
     path = Path(normalized)
     suffix = path.suffix.lower()
     language = LANGUAGE_BY_SUFFIX.get(suffix)
+
+    if bucket == "lis":
+        return {
+            "type": "lis",
+            "app": "global",
+            "language": language or "markdown",
+            "file": normalized,
+        }
 
     parts = path.parts
     under_tests = "tests" in parts or "test" in parts
