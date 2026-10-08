@@ -55,9 +55,11 @@ Edit at least:
 - `embedding.*` — your local embedding endpoint
 - `qdrant.collection` — unique name per workspace
 - `index.repo_root` — default `".."` (parent workspace)
-- `index.knowledge` / `index.code` — globs relative to `repo_root`
+- `index.knowledge` / `index.code` / optional `index.lis` — globs (LIS may be absolute)
 - `index.apps` — optional path-prefix → app labels for `search_code(app=...)`
+- `mcp.capabilities` — which surfaces are active (`knowledge` / `code` / `lis`)
 - `mcp.name` / `mcp.instructions` — how the agent should use the tools
+- `mcp.transport` — `stdio` (default) or HTTP for URL clients (see below)
 
 4. Index (full rebuild):
 
@@ -100,7 +102,7 @@ The second command should start the MCP server and wait on stdio — stop with C
 
 Start MCP only after a successful `index`. MCP does **not** reindex on startup.
 
-### Cursor / VS Code / OpenCode
+### Cursor / VS Code / OpenCode (stdio)
 
 Same stdio command works across clients. Put the JSON block above in:
 
@@ -110,6 +112,41 @@ Same stdio command works across clients. Put the JSON block above in:
 
 Match `mcpServers` key (or client name field) to `mcp.name` in `config.yaml` if you want them aligned.
 
+### HTTP transport (URL clients)
+
+For tools that only speak MCP over HTTP, run:
+
+```bash
+npm run rag:mcp:http
+# or:
+.venv/bin/python -m rag.mcp_server --transport http --host 127.0.0.1 --port 8000
+```
+
+| Transport | CLI / config | Client URL |
+|-----------|--------------|------------|
+| `http` (dual, recommended) | `--transport http` / `npm run rag:mcp:http` | **`http://127.0.0.1:8000/mcp`** (also serves `/sse`) |
+| `streamable-http` | `--transport streamable-http` | `http://127.0.0.1:8000/mcp` |
+| `sse` (legacy) | `--transport sse` | GET `http://127.0.0.1:8000/sse`, POST messages to `/messages/` |
+| `stdio` | default | process stdin/stdout (Cursor etc.) |
+
+Point modern URL clients at **`/mcp`**, not `/`, `/sse`, or bare `host:port`.
+`GET http://127.0.0.1:8000/` returns a JSON map of endpoints.
+
+Config / env (CLI flags override):
+
+```yaml
+mcp:
+  transport: "http"       # stdio | streamable-http | sse | http
+  host: "127.0.0.1"
+  port: 8000
+  stateless_http: true    # better for many URL clients
+```
+
+`RAG_MCP_TRANSPORT`, `RAG_MCP_HOST`, `RAG_MCP_PORT`, `RAG_MCP_PATH`.
+
+With `qdrant.mode=local`, only one process may open the store — prefer
+`qdrant.mode=server` if Cursor stdio MCP and HTTP MCP run at the same time.
+
 ## npm helpers (optional)
 
 From `rag-mcp/`:
@@ -117,15 +154,17 @@ From `rag-mcp/`:
 ```bash
 npm run rag:index
 npm run rag:status
-npm run rag:mcp
+npm run rag:mcp       # stdio
+npm run rag:mcp:http  # dual HTTP on :8000 (/mcp + /sse)
 npm run rag:test
-npm run rag:up      # optional Qdrant server via Docker Compose
-npm run package     # build dist/rag-mcp.zip
+npm run rag:up        # optional Qdrant server via Docker Compose
+npm run package       # build dist/rag-mcp.zip
 ```
 
 ## Index details
 
-`index.sources`: `knowledge` | `code` | `all`.
+`index.sources`: `knowledge` | `code` | `lis` | `all` | comma-separated (e.g. `knowledge,lis`).
+Effective buckets = `index.sources` ∩ `mcp.capabilities`.
 
 Changing `embedding.model` requires a reindex. `rag:status` warns on mismatch.
 
@@ -186,15 +225,35 @@ Ownership model:
 - Agents use MCP **read-only** (search / trace / impact); they do not reindex
 - Call `index_status` and compare `git_sha` before relying on results in review
 
+### Capabilities and LIS
+
+`mcp.capabilities` turns surfaces on/off (tools + index buckets):
+
+```yaml
+mcp:
+  capabilities:
+    knowledge: true   # workspace docs → search_knowledge
+    code: true        # source/tests → search_code
+    lis: false        # org ledningssystem → search_lis
+```
+
+When `lis: true`, set `index.lis` to a markdown mirror (absolute paths OK), e.g.
+synced LIS docs with YAML frontmatter (`doc_type`, `process_area`, `domain`, `status`).
+Chunks are stored as `type=lis` and kept separate from workspace `documentation`.
+
 ### Tools
+
+Tools are registered only when the matching capability is on
+(`index_status` / `list_sources` always).
 
 | Tool | Purpose |
 |------|---------|
 | `index_status` | Freshness, model, `git_sha`, stale hints |
-| `list_sources` | Apps, globs, requirement ID patterns |
-| `search_knowledge` | Docs (`type=documentation`); optional `path_prefix` |
+| `list_sources` | Capabilities, apps, globs (incl. LIS), patterns |
+| `search_knowledge` | Workspace docs (`type=documentation`); optional `path_prefix` |
 | `search_code` | Code/tests; optional `app`, `path_prefix` |
-| `get_context_pack` | Structured docs + code pack for a task |
+| `search_lis` | LIS / ledningssystem; optional `doc_type`, `process_area`, `domain`, `status` |
+| `get_context_pack` | Structured pack from enabled sources (docs / code / LIS) |
 | `trace_requirement` | Requirement ID/text → docs + code/tests |
 | `impact_of_change` | Likely code, docs, tests, risks for a change |
 | `find_gaps` | Heuristic docs↔code coverage gaps |
@@ -207,6 +266,8 @@ Ownership model:
 | `rag://sources` | Same JSON as `list_sources` |
 
 ### Prompts
+
+Registered when `knowledge` or `code` is enabled.
 
 | Prompt | Use |
 |--------|-----|
@@ -222,6 +283,7 @@ Ownership model:
 .venv/bin/python -m rag.cli search "architecture overview" --mode knowledge
 .venv/bin/python -m rag.cli search "BookingService" --mode code --app web
 .venv/bin/python -m rag.cli search "booking" --mode code --path-prefix apps/web/
+.venv/bin/python -m rag.cli search "change management" --mode lis --process-area utveckla
 ```
 
 ## Tests
