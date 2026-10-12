@@ -7,9 +7,12 @@ import logging
 import os
 import signal
 import sys
+from typing import Any, Callable
 
+import anyio
 from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
+from mcp.types import CallToolResult
 
 from rag import mcp_prompts
 from rag.config import (
@@ -17,32 +20,49 @@ from rag.config import (
     Config,
     load_config,
     mcp_public_url,
-    mcp_run_kwargs,
     normalize_mcp_transport,
     resolve_mcp_instructions,
 )
 from rag.mcp_http import endpoint_urls, run_http
+from rag.mcp_results import as_tool_result, tool_error
+from rag.mcp_validate import (
+    require_nonempty,
+    validate_lis_filters,
+    validate_top_k,
+)
 from rag.retrieval import search as retrieval
 from rag.retrieval.context_pack import get_context_pack as _get_context_pack
 from rag.retrieval.impact import find_gaps as _find_gaps
 from rag.retrieval.impact import impact_of_change as _impact_of_change
 from rag.retrieval.sources_info import list_sources as _list_sources
+from rag.retrieval.sources_info import list_sources_resource as _list_sources_resource
 from rag.retrieval.status_info import index_status as _index_status
+from rag.retrieval.status_info import index_status_resource as _index_status_resource
 from rag.retrieval.trace import trace_requirement as _trace_requirement
 from rag.runtime import RagRuntime
 from rag.store import QdrantLockError
-
-load_dotenv(PACKAGE_ROOT / ".env")
-os.chdir(PACKAGE_ROOT)
+from rag.version import package_version
 
 logger = logging.getLogger(__name__)
+
+_SERVER_TITLE = "Workspace RAG"
+_SERVER_DESCRIPTION = (
+    "Local retrieval for coding agents: search docs/code/LIS, context packs, "
+    "requirement tracing, impact analysis, and review prompts."
+)
 
 
 def create_mcp_server(config: Config, runtime: RagRuntime | None = None) -> MCPServer:
     """Build an MCPServer with tools/prompts registered per capabilities."""
     rt = runtime or RagRuntime(config)
     instructions = resolve_mcp_instructions(config)
-    server = MCPServer(config.mcp.name, instructions=instructions)
+    server = MCPServer(
+        config.mcp.name,
+        title=_SERVER_TITLE,
+        description=_SERVER_DESCRIPTION,
+        instructions=instructions,
+        version=package_version(),
+    )
     _register(server, config, rt)
     return server
 
@@ -50,31 +70,39 @@ def create_mcp_server(config: Config, runtime: RagRuntime | None = None) -> MCPS
 def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     caps = config.mcp.capabilities
 
-    def _with_runtime(search_fn, **kwargs) -> str:
+    async def _with_runtime(search_fn: Callable[..., str], **kwargs: Any) -> CallToolResult:
         try:
             store = runtime.get_store()
             embedder = runtime.get_embedder()
         except QdrantLockError as exc:
-            return f"Error: {exc}"
+            return tool_error(str(exc))
         except Exception as exc:  # noqa: BLE001
             logger.exception("Failed to initialize RAG runtime")
-            return f"Error: failed to initialize RAG runtime: {exc}"
+            return tool_error(f"failed to initialize RAG runtime: {exc}")
 
-        return search_fn(
-            config,
-            store=store,
-            embedder=embedder,
-            **kwargs,
-        )
+        def _call() -> str:
+            return search_fn(
+                config,
+                store=store,
+                embedder=embedder,
+                **kwargs,
+            )
+
+        try:
+            text = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("RAG tool call failed")
+            return tool_error(str(exc))
+        return as_tool_result(text)
 
     if caps.knowledge:
 
         @mcp.tool()
-        def search_knowledge(
+        async def search_knowledge(
             query: str,
             top_k: int | None = None,
             path_prefix: str | None = None,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Search workspace documentation (README, docs, and configured knowledge sources).
 
@@ -86,7 +114,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 top_k: Optional result count override.
                 path_prefix: Optional repo-relative path prefix filter (e.g. docs/requirements/).
             """
-            return _with_runtime(
+            if err := require_nonempty("query", query):
+                return tool_error(err)
+            if err := validate_top_k(top_k):
+                return tool_error(err)
+            return await _with_runtime(
                 retrieval.search_knowledge,
                 query=query,
                 top_k=top_k,
@@ -96,12 +128,12 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     if caps.code:
 
         @mcp.tool()
-        def search_code(
+        async def search_code(
             query: str,
             app: str | None = None,
             top_k: int | None = None,
             path_prefix: str | None = None,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Search application source and tests under configured code globs.
 
@@ -111,7 +143,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 top_k: Optional result count override.
                 path_prefix: Optional repo-relative path prefix filter (e.g. apps/web/).
             """
-            return _with_runtime(
+            if err := require_nonempty("query", query):
+                return tool_error(err)
+            if err := validate_top_k(top_k):
+                return tool_error(err)
+            return await _with_runtime(
                 retrieval.search_code,
                 query=query,
                 app=app,
@@ -122,7 +158,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     if caps.lis:
 
         @mcp.tool()
-        def search_lis(
+        async def search_lis(
             query: str,
             top_k: int | None = None,
             path_prefix: str | None = None,
@@ -130,7 +166,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             process_area: str | None = None,
             domain: str | None = None,
             status: str | None = None,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Search organizational LIS / ledningssystem documents (policies, riktlinjer, anvisningar, etc.).
 
@@ -146,7 +182,17 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 domain: Optional domain filter (infosec|kvalitet|mtp|...).
                 status: Optional status filter (approved|draft).
             """
-            return _with_runtime(
+            if err := require_nonempty("query", query):
+                return tool_error(err)
+            if err := validate_top_k(top_k):
+                return tool_error(err)
+            if err := validate_lis_filters(
+                doc_type=doc_type,
+                process_area=process_area,
+                status=status,
+            ):
+                return tool_error(err)
+            return await _with_runtime(
                 retrieval.search_lis,
                 query=query,
                 top_k=top_k,
@@ -158,31 +204,33 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             )
 
     @mcp.tool()
-    def index_status() -> str:
+    async def index_status() -> CallToolResult:
         """
         Show index freshness: points count, model, git_sha, stale hints.
 
         Call before non-trivial change or review work.
         """
-        return _index_status(config)
+        text = await anyio.to_thread.run_sync(_index_status, config)
+        return as_tool_result(text)
 
     @mcp.tool()
-    def list_sources() -> str:
+    async def list_sources() -> CallToolResult:
         """
         List configured capabilities, repo_root, apps, knowledge/code/lis globs, and requirement ID patterns.
         """
-        return _list_sources(config)
+        text = await anyio.to_thread.run_sync(_list_sources, config)
+        return as_tool_result(text)
 
     if caps.knowledge or caps.code or caps.lis:
 
         @mcp.tool()
-        def get_context_pack(
+        async def get_context_pack(
             task: str,
             app: str | None = None,
             top_k_docs: int = 5,
             top_k_code: int = 8,
             top_k_lis: int = 5,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Build a structured context pack for a task from enabled sources (docs / code / LIS).
 
@@ -193,7 +241,16 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 top_k_code: Max code/test hits.
                 top_k_lis: Max LIS hits.
             """
-            return _with_runtime(
+            if err := require_nonempty("task", task):
+                return tool_error(err)
+            for name, value in (
+                ("top_k_docs", top_k_docs),
+                ("top_k_code", top_k_code),
+                ("top_k_lis", top_k_lis),
+            ):
+                if err := validate_top_k(value, name=name):
+                    return tool_error(err)
+            return await _with_runtime(
                 _get_context_pack,
                 task=task,
                 app=app,
@@ -205,11 +262,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     if caps.knowledge or caps.code:
 
         @mcp.tool()
-        def trace_requirement(
+        async def trace_requirement(
             requirement: str,
             app: str | None = None,
             top_k: int = 8,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Trace a requirement ID or requirement text to docs and implementing code/tests.
 
@@ -218,7 +275,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 app: Optional app filter for code/tests.
                 top_k: Max hits per section.
             """
-            return _with_runtime(
+            if err := require_nonempty("requirement", requirement):
+                return tool_error(err)
+            if err := validate_top_k(top_k):
+                return tool_error(err)
+            return await _with_runtime(
                 _trace_requirement,
                 requirement=requirement,
                 app=app,
@@ -226,12 +287,12 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             )
 
         @mcp.tool()
-        def impact_of_change(
+        async def impact_of_change(
             change: str,
             app: str | None = None,
             path_prefix: str | None = None,
             top_k: int = 8,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Estimate impact of a change (file path, symbol, feature, or short diff summary).
 
@@ -241,7 +302,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 path_prefix: Optional path scope.
                 top_k: Max hits per section.
             """
-            return _with_runtime(
+            if err := require_nonempty("change", change):
+                return tool_error(err)
+            if err := validate_top_k(top_k):
+                return tool_error(err)
+            return await _with_runtime(
                 _impact_of_change,
                 change=change,
                 app=app,
@@ -250,11 +315,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             )
 
         @mcp.tool()
-        def find_gaps(
+        async def find_gaps(
             area: str,
             app: str | None = None,
             top_k: int = 10,
-        ) -> str:
+        ) -> CallToolResult:
             """
             Heuristic gaps: documentation without clear code, and code without clear docs.
 
@@ -263,7 +328,11 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 app: Optional app filter for code side.
                 top_k: Candidate pool size.
             """
-            return _with_runtime(
+            if err := require_nonempty("area", area):
+                return tool_error(err)
+            if err := validate_top_k(top_k):
+                return tool_error(err)
+            return await _with_runtime(
                 _find_gaps,
                 area=area,
                 app=app,
@@ -272,13 +341,13 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
 
     @mcp.resource("rag://status", mime_type="application/json")
     def resource_status() -> str:
-        """Index status JSON (same payload as index_status tool)."""
-        return _index_status(config)
+        """Index status JSON (same payload as index_status tool, with ok envelope)."""
+        return _index_status_resource(config)
 
     @mcp.resource("rag://sources", mime_type="application/json")
     def resource_sources() -> str:
-        """Configured sources JSON (same payload as list_sources tool)."""
-        return _list_sources(config)
+        """Configured sources JSON (same payload as list_sources tool, with ok envelope)."""
+        return _list_sources_resource(config)
 
     if caps.knowledge or caps.code:
 
@@ -307,16 +376,6 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
         )
         def regression_check(changed_area: str, app: str = "") -> str:
             return mcp_prompts.regression_check_text(changed_area, app)
-
-
-config = load_config(os.environ.get("RAG_CONFIG", "config.yaml"))
-logging.basicConfig(
-    level=getattr(logging, config.log_level.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
-
-runtime = RagRuntime(config)
-mcp = create_mcp_server(config, runtime)
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -355,23 +414,26 @@ def apply_cli_overrides(cfg: Config, args: argparse.Namespace) -> Config:
     return cfg
 
 
+def _configure_logging(cfg: Config) -> None:
+    logging.basicConfig(
+        level=getattr(logging, cfg.log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
-    global config, runtime, mcp
+    load_dotenv(PACKAGE_ROOT / ".env")
+    os.chdir(PACKAGE_ROOT)
 
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
-    # Reload when --config differs from module-level default
-    requested = args.config
-    current = os.environ.get("RAG_CONFIG", "config.yaml")
-    if requested != current:
-        config = load_config(requested)
-        runtime = RagRuntime(config)
-        mcp = create_mcp_server(config, runtime)
-
+    config = load_config(args.config)
+    _configure_logging(config)
     apply_cli_overrides(config, args)
-    # Rebuild server if transport-related instructions unchanged but name/caps same —
-    # tools already registered; only run kwargs change. No rebuild needed.
+
+    runtime = RagRuntime(config)
+    mcp = create_mcp_server(config, runtime)
 
     warmup_error = runtime.try_warmup()
     url = mcp_public_url(config)
@@ -383,8 +445,9 @@ def main(argv: list[str] | None = None) -> None:
         )
     else:
         logger.info(
-            "Starting %s MCP server (collection=%s, mode=%s, transport=%s, capabilities=%s%s)",
+            "Starting %s MCP server v%s (collection=%s, mode=%s, transport=%s, capabilities=%s%s)",
             config.mcp.name,
+            package_version(),
             config.qdrant.collection,
             config.qdrant.mode,
             config.mcp.transport,
@@ -398,6 +461,12 @@ def main(argv: list[str] | None = None) -> None:
 
     transport = normalize_mcp_transport(config.mcp.transport)
     if transport != "stdio":
+        if config.mcp.host in {"0.0.0.0", "::", "[::]"}:
+            logger.warning(
+                "MCP HTTP is bound to %s without authentication. "
+                "Prefer 127.0.0.1 for local use, or put a reverse proxy with auth in front.",
+                config.mcp.host,
+            )
         urls = endpoint_urls(config)
         print("MCP HTTP endpoints:", file=sys.stderr)
         for kind, endpoint in urls.items():
@@ -424,7 +493,6 @@ def main(argv: list[str] | None = None) -> None:
     if transport == "stdio":
         mcp.run(transport="stdio")
     else:
-        # Custom HTTP runner: dual mount + root info + stateless_http defaults
         run_http(mcp, config)
 
 

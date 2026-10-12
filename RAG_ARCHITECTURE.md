@@ -79,8 +79,8 @@ Search applies optional **lexical re-rank**
 
 ### Resources
 
-- `rag://status`
-- `rag://sources`
+- `rag://status` — JSON `{ok, ...}` (errors: `{ok: false, error}`)
+- `rag://sources` — JSON `{ok, ...}`
 
 ### Prompts
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from rag.config import Config
+from rag.mcp_results import resource_ok
 
 
 def list_sources_payload(config: Config) -> dict:
@@ -32,3 +33,7 @@ def list_sources_payload(config: Config) -> dict:
 
 def list_sources(config: Config) -> str:
     return json.dumps(list_sources_payload(config), indent=2) + "\n"
+
+
+def list_sources_resource(config: Config) -> str:
+    return resource_ok(list_sources_payload(config))

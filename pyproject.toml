@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=9.1.1,<10"]
+cli = ["mcp[cli]>=2.3.0,<3"]
 
 [project.scripts]
 rag-mcp = "rag.mcp_server:main"

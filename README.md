@@ -35,13 +35,25 @@ my-workspace/
     ...
 ```
 
-2. Install dependencies:
+2. Install dependencies (pip **or** [uv](https://docs.astral.sh/uv/)):
 
 ```bash
 cd rag-mcp
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+# Optional: MCP Inspector / `mcp` CLI helpers
+# pip install '.[cli]'
+```
+
+With uv:
+
+```bash
+cd rag-mcp
+uv venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
+# uv pip install '.[cli]'
 ```
 
 3. Configure:
@@ -112,6 +124,10 @@ Same stdio command works across clients. Put the JSON block above in:
 
 Match `mcpServers` key (or client name field) to `mcp.name` in `config.yaml` if you want them aligned.
 
+### Claude for Desktop (stdio)
+
+Same shape as above in `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `~/.config/Claude/claude_desktop_config.json` (Linux), or `%AppData%\Claude\claude_desktop_config.json` (Windows). Use absolute paths, then fully quit and restart Claude.
+
 ### HTTP transport (URL clients)
 
 For tools that only speak MCP over HTTP, run:
@@ -132,6 +148,8 @@ npm run rag:mcp:http
 Point modern URL clients at **`/mcp`**, not `/`, `/sse`, or bare `host:port`.
 `GET http://127.0.0.1:8000/` returns a JSON map of endpoints.
 
+Bind to `127.0.0.1` by default. Do **not** use `0.0.0.0` / `::` without an authenticating reverse proxy — the HTTP MCP has no built-in auth and would expose your index on the network.
+
 Config / env (CLI flags override):
 
 ```yaml
@@ -146,6 +164,13 @@ mcp:
 
 With `qdrant.mode=local`, only one process may open the store — prefer
 `qdrant.mode=server` if Cursor stdio MCP and HTTP MCP run at the same time.
+
+### Felsök MCP
+
+- Confirm the stdio process starts and waits (no traceback) with the absolute-path command above.
+- Host logs: Cursor MCP panel / server logs; Claude Desktop writes MCP stderr under `~/Library/Logs/Claude/` (`mcp.log`, `mcp-server-*.log` on macOS) or `~/.config/Claude/logs/` on Linux.
+- Official guide: [Debugging MCP](https://modelcontextprotocol.io/docs/2026-07-28/tools/debugging).
+- Optional Inspector: `pip install '.[cli]'` then use the `mcp` CLI against this server.
 
 ## npm helpers (optional)
 
@@ -260,10 +285,12 @@ Tools are registered only when the matching capability is on
 
 ### Resources
 
+Resources always return JSON with an `ok` envelope (`ok: true` + fields, or `ok: false` + `error`).
+
 | URI | Content |
 |-----|---------|
-| `rag://status` | Same JSON as `index_status` |
-| `rag://sources` | Same JSON as `list_sources` |
+| `rag://status` | Index status payload (`ok` + same fields as `index_status` tool) |
+| `rag://sources` | Sources payload (`ok` + same fields as `list_sources` tool) |
 
 ### Prompts
 
