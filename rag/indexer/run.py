@@ -13,6 +13,7 @@ from rag.config import Config
 from rag.embeddings import EmbeddingClient
 from rag.indexer.chunk_code import chunk_code
 from rag.indexer.chunk_markdown import chunk_markdown
+from rag.indexer.collections import CollectionRouter
 from rag.indexer.frontmatter import lis_fields_from_frontmatter, split_frontmatter
 from rag.indexer.git_info import git_head_sha
 from rag.indexer.line_ranges import attach_line_numbers
@@ -223,36 +224,61 @@ def run_index(config: Config) -> dict[str, Any]:
     sample_vector = embedder.embed_texts([chunks[0]["content"]], for_query=False)[0]
     vector_size = len(sample_vector)
 
-    store = VectorStore(config)
+    router = CollectionRouter(config)
+    staging = router.staging_collection()
+    previous_active = router.active_collection()
+    staging_config = _config_with_collection(config, staging)
+
+    store = VectorStore(staging_config)
     try:
         store.recreate_collection(vector_size)
-
         texts = [c["content"] for c in chunks]
         logger.info(
-            "Embedding %d chunks (concurrency=%d)",
+            "Embedding %d chunks into staging '%s' (concurrency=%d)",
             len(texts),
+            staging,
             max(1, int(config.embedding.concurrency or 1)),
         )
         vectors = embedder.embed_texts(texts, for_query=False)
-
         count = store.upsert_chunks(chunks, vectors)
-    finally:
+        if count <= 0:
+            raise RuntimeError("staging index produced zero points; active index unchanged")
+    except Exception:
         store.close()
+        logger.exception(
+            "Full index failed before activation; active collection remains %s",
+            previous_active,
+        )
+        raise
+    else:
+        store.close()
+        router.activate(staging, vector_size=vector_size)
 
     status = _status_base(config, chunk_count=count, vector_size=vector_size)
     status["index_mode"] = "full"
+    status["active_collection"] = router.active_collection()
+    status["previous_collection"] = previous_active
     from rag.indexer.index_manifest import current_manifest, write_manifest
 
     manifest = current_manifest(
         embedding_model=config.embedding.model,
         vector_size=vector_size,
-        collection=config.qdrant.collection,
+        collection=router.active_collection(),
     )
     write_manifest(config.status_file_path.with_name("index_manifest.json"), manifest)
     status["index_manifest"] = manifest.to_dict()
     _write_status(config.status_file_path, status)
-    logger.info("Indexed %d chunks into '%s'", count, config.qdrant.collection)
+    logger.info("Indexed %d chunks into '%s'", count, router.active_collection())
     return status
+
+
+def _config_with_collection(config: Config, collection: str) -> Config:
+    """Shallow-copy config pointing VectorStore at another collection name."""
+    from copy import deepcopy
+
+    cloned = deepcopy(config)
+    cloned.qdrant.collection = collection
+    return cloned
 
 
 def run_index_files(config: Config, rel_paths: Sequence[str]) -> dict[str, Any]:
