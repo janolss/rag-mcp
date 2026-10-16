@@ -241,6 +241,15 @@ def run_index(config: Config) -> dict[str, Any]:
 
     status = _status_base(config, chunk_count=count, vector_size=vector_size)
     status["index_mode"] = "full"
+    from rag.indexer.index_manifest import current_manifest, write_manifest
+
+    manifest = current_manifest(
+        embedding_model=config.embedding.model,
+        vector_size=vector_size,
+        collection=config.qdrant.collection,
+    )
+    write_manifest(config.status_file_path.with_name("index_manifest.json"), manifest)
+    status["index_manifest"] = manifest.to_dict()
     _write_status(config.status_file_path, status)
     logger.info("Indexed %d chunks into '%s'", count, config.qdrant.collection)
     return status
@@ -264,6 +273,20 @@ def run_index_files(config: Config, rel_paths: Sequence[str]) -> dict[str, Any]:
     sample_vector = embedder.embed_texts([chunks[0]["content"]], for_query=False)[0]
     vector_size = len(sample_vector)
     files_touched = sorted({c["file"] for c in chunks})
+
+    from rag.indexer.index_manifest import (
+        check_compatibility,
+        current_manifest,
+        read_manifest,
+    )
+
+    expected = current_manifest(
+        embedding_model=config.embedding.model,
+        vector_size=vector_size,
+        collection=config.qdrant.collection,
+    )
+    existing = read_manifest(config.status_file_path.with_name("index_manifest.json"))
+    check_compatibility(existing, expected, allow_missing=True)
 
     store = VectorStore(config)
     try:
