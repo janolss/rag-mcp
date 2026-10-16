@@ -3,7 +3,6 @@ import hashlib
 import json
 
 from pydantic import AnyUrl
-
 from rag.config import (
     CapabilitiesConfig,
     Config,
@@ -42,9 +41,7 @@ def _make(knowledge=True, code=True, lis=False):
     config = Config(
         qdrant=QdrantConfig(mode="memory", collection="mcp_reg"),
         index=IndexConfig(sources="all"),
-        mcp=McpConfig(
-            capabilities=CapabilitiesConfig(knowledge=knowledge, code=code, lis=lis)
-        ),
+        mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=knowledge, code=code, lis=lis)),
     )
     runtime = RagRuntime(config)
     runtime._embedder = FakeEmbedder()
@@ -120,19 +117,11 @@ def test_mcp_resources_always_json():
             return resource_result
         if isinstance(resource_result, list) and resource_result:
             first = resource_result[0]
-            return (
-                getattr(first, "content", None)
-                or getattr(first, "text", None)
-                or str(first)
-            )
+            return getattr(first, "content", None) or getattr(first, "text", None) or str(first)
         contents = getattr(resource_result, "contents", None)
         if contents:
             first = contents[0]
-            return (
-                getattr(first, "content", None)
-                or getattr(first, "text", None)
-                or str(first)
-            )
+            return getattr(first, "content", None) or getattr(first, "text", None) or str(first)
         return str(resource_result)
 
     status_payload = json.loads(_text(status))

@@ -3,7 +3,9 @@ from rag.embeddings import EmbeddingClient, normalize_embeddings_url
 
 
 def test_normalize_adds_v1_embeddings():
-    assert normalize_embeddings_url("http://localhost:1234") == "http://localhost:1234/v1/embeddings"
+    assert (
+        normalize_embeddings_url("http://localhost:1234") == "http://localhost:1234/v1/embeddings"
+    )
 
 
 def test_normalize_with_v1_suffix():

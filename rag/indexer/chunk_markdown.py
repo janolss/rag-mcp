@@ -19,7 +19,7 @@ def chunk_markdown(
     """
     Split markdown into overlapping chunks.
 
-    Prefers heading boundaries (#–###). Large sections are further split on
+    Prefers heading boundaries (#-###). Large sections are further split on
     blank-line paragraph boundaries.
     """
     if not text.strip():

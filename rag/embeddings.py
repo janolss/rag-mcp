@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Sequence
 
 import httpx
 
@@ -105,7 +105,7 @@ class EmbeddingClient:
                 f"ok dim={len(vector)} model={self.model} "
                 f"provider={self.provider} concurrency={self._concurrency}",
             )
-        except Exception as exc:  # noqa: BLE001 - surface any transport/API failure
+        except Exception as exc:
             return False, str(exc)
 
     def _clamp_input(self, text: str) -> str:
@@ -128,7 +128,7 @@ class EmbeddingClient:
         with httpx.Client(timeout=self._timeout) as client:
             for start, batch in batches:
                 logger.info(
-                    "Embedding %d–%d / %d (concurrency=1)",
+                    "Embedding %d-%d / %d (concurrency=1)",
                     start + 1,
                     start + len(batch),
                     total,

@@ -313,11 +313,28 @@ Registered when `knowledge` or `code` is enabled.
 .venv/bin/python -m rag.cli search "change management" --mode lis --process-area utveckla
 ```
 
-## Tests
+## Tests and quality gate
+
+Every change must pass the verify gate before a PR is opened:
 
 ```bash
+npm run rag:verify
+# equivalent:
+#   .venv/bin/python -m ruff check .
+#   .venv/bin/python -m ruff format --check .
+#   .venv/bin/python -m pytest tests/ -q
+```
+
+Individual commands:
+
+```bash
+npm run rag:lint
+npm run rag:test
 .venv/bin/python -m pytest tests/ -v
 ```
+
+Runtime decision: this project stays on Python (see
+[docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md)).
 
 ## Packaging this repo
 

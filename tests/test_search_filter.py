@@ -1,5 +1,4 @@
 from qdrant_client import models
-
 from rag.store import build_type_app_filter
 
 

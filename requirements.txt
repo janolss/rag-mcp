@@ -3,4 +3,6 @@ qdrant-client>=1.19.1,<2
 httpx>=0.28.1,<1
 pyyaml>=6.0.3,<7
 python-dotenv>=1.2.4,<2
+pydantic>=2.10,<3
 pytest>=9.1.1,<10
+ruff>=0.9,<1

@@ -56,7 +56,7 @@ class RagRuntime:
         except QdrantLockError as exc:
             logger.warning("Qdrant unavailable at MCP startup: %s", exc)
             return str(exc)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Failed to warm up RAG store: %s", exc)
             return str(exc)
 

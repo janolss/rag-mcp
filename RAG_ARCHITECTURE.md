@@ -3,6 +3,16 @@
 This document describes the retrieval layer for coding agents. The
 implementation lives in this package (`rag-mcp`).
 
+## Runtime decision
+
+The multi-workspace evolution keeps the existing Python stack (MCP SDK,
+Starlette/Uvicorn, Qdrant, Pydantic, Ruff). See
+[docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md).
+
+Application adapters (MCP/HTTP) will share service protocols defined in
+`rag/services/contracts.py`. Concrete multi-workspace services land in later
+phases; this package currently remains a single-workspace RAG MCP server.
+
 ## Goal
 
 Help an MCP-compatible agent answer:

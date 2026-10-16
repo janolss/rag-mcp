@@ -257,9 +257,7 @@ def resolve_mcp_instructions(config: Config) -> str:
     return "\n\n".join(parts)
 
 
-MCP_TRANSPORTS: frozenset[str] = frozenset(
-    {"stdio", "streamable-http", "sse", "http"}
-)
+MCP_TRANSPORTS: frozenset[str] = frozenset({"stdio", "streamable-http", "sse", "http"})
 
 
 def normalize_mcp_transport(value: str | None) -> str:
@@ -271,8 +269,7 @@ def normalize_mcp_transport(value: str | None) -> str:
         transport = "http"
     if transport not in MCP_TRANSPORTS:
         raise ValueError(
-            f"Unsupported mcp.transport: {value!r} "
-            f"(use stdio|streamable-http|sse|http)"
+            f"Unsupported mcp.transport: {value!r} (use stdio|streamable-http|sse|http)"
         )
     return transport
 

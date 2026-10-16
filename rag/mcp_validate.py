@@ -64,9 +64,7 @@ def validate_lis_filters(
 ) -> str | None:
     dt = _optional_lower(doc_type)
     if dt is not None and dt not in LIS_DOC_TYPES:
-        return (
-            f"Error: doc_type must be one of {sorted(LIS_DOC_TYPES)} (got {doc_type!r})."
-        )
+        return f"Error: doc_type must be one of {sorted(LIS_DOC_TYPES)} (got {doc_type!r})."
 
     pa = _optional_lower(process_area)
     if pa is not None and pa not in LIS_PROCESS_AREAS:
@@ -77,8 +75,6 @@ def validate_lis_filters(
 
     st = _optional_lower(status)
     if st is not None and st not in LIS_STATUSES:
-        return (
-            f"Error: status must be one of {sorted(LIS_STATUSES)} (got {status!r})."
-        )
+        return f"Error: status must be one of {sorted(LIS_STATUSES)} (got {status!r})."
 
     return None
