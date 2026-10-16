@@ -30,19 +30,26 @@ def registry_path_for(config: Config) -> Path:
     return config.status_file_path.parent / "document_registry.sqlite3"
 
 
-def run_incremental(config: Config, rel_paths: list[str] | None = None) -> dict[str, Any]:
+def run_incremental(
+    config: Config,
+    rel_paths: list[str] | None = None,
+    *,
+    workspace_id: str = "default",
+) -> dict[str, Any]:
     """Entry point used by ``index --files`` and full incremental passes."""
+    from rag.indexer.source_model import resolve_workspace_sources
+
     embedder = EmbeddingClient(config.embedding)
     ok, message = embedder.health_check()
     if not ok:
         raise RuntimeError(f"Embedding endpoint unhealthy: {message}")
 
+    workspace, _sources = resolve_workspace_sources(config, workspace_id=workspace_id)
     registry = DocumentRegistry(registry_path_for(config))
-    workspace_id = "default"
     if rel_paths:
-        diff = inventory_for_files(config, registry, rel_paths, workspace_id=workspace_id)
+        diff = inventory_for_files(config, registry, rel_paths, workspace_id=workspace.id)
     else:
-        diff = inventory_for_workspace(config, registry, workspace_id=workspace_id)
+        diff = inventory_for_workspace(config, registry, workspace_id=workspace.id)
 
     return apply_inventory(config, registry, diff, embedder=embedder)
 
@@ -150,7 +157,14 @@ def write_verify_retire_document(
         )
     )
 
-    chunks = _chunk_file(config, path, observed.path, bucket=observed.source_id)
+    chunks = _chunk_file(
+        config,
+        path,
+        observed.path,
+        bucket=observed.source_id,
+        workspace_id=observed.workspace_id,
+        source_id=observed.source_id,
+    )
     for chunk in chunks:
         chunk["workspace_id"] = observed.workspace_id
         chunk["source_id"] = observed.source_id

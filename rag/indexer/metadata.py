@@ -47,6 +47,14 @@ def metadata_from_path(
             "file": normalized,
         }
 
+    if bucket == "knowledge":
+        return {
+            "type": "documentation",
+            "app": "global",
+            "language": language or "markdown",
+            "file": normalized,
+        }
+
     parts = path.parts
     under_tests = "tests" in parts or "test" in parts
 

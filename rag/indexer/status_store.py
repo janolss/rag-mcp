@@ -167,6 +167,7 @@ class StatusStore:
         clear_lease: bool = False,
         error: str | None = None,
         result: dict[str, Any] | None = None,
+        clear_result: bool = False,
     ) -> JobRecord | None:
         current = self.get(job_id)
         if current is None:
@@ -179,7 +180,9 @@ class StatusStore:
         elif lease_expires_at is not None:
             new_lease = lease_expires_at
         result_json = current.result_json
-        if result is not None:
+        if clear_result:
+            result_json = None
+        elif result is not None:
             result_json = json.dumps(result)
         err = current.error if error is None else error
         with self._connect() as conn:

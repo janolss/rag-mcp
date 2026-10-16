@@ -304,6 +304,25 @@ class VectorStore:
             wait=True,
         )
 
+    def delete_by_workspace(self, workspace_id: str) -> None:
+        """Delete every point belonging to ``workspace_id`` in the active collection."""
+        if not workspace_id or not self.collection_exists():
+            return
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="workspace_id",
+                            match=models.MatchValue(value=workspace_id),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
+
     def scroll_document_points(
         self,
         *,

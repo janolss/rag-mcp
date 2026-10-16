@@ -10,8 +10,7 @@ from typing import Literal
 from rag.config import Config
 from rag.indexer.document_registry import DocumentRecord, DocumentRegistry
 from rag.indexer.identity import content_hash, normalize_document_id
-from rag.indexer.sources import selected_sources_for_config
-from rag.indexer.walk import file_identity, read_text_file, walk_files
+from rag.indexer.walk import file_identity, path_identity_for_indexing, read_text_file
 from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
 
 InventoryKind = Literal["new", "changed", "unchanged", "deleted"]
@@ -184,11 +183,16 @@ def observe_paths(
     workspace_id: str = "default",
 ) -> list[ObservedDocument]:
     """Build observed documents for explicit paths (missing paths are omitted)."""
-    from rag.indexer.run import _infer_bucket, _registered_extra_roots
+    from rag.indexer.run import _infer_bucket, _match_source_for_path, _registered_extra_roots
+    from rag.indexer.source_model import resolve_workspace_sources
 
+    workspace, sources = resolve_workspace_sources(config, workspace_id=workspace_id)
     repo_root = config.repo_root_path
     policy = PathSecurityPolicy()
-    roots = [repo_root.resolve(), *[r.resolve() for r in _registered_extra_roots(config)]]
+    roots = [
+        repo_root.resolve(),
+        *[r.resolve() for r in _registered_extra_roots(config, workspace_id=workspace.id)],
+    ]
     observed: list[ObservedDocument] = []
     seen: set[str] = set()
 
@@ -200,13 +204,21 @@ def observe_paths(
         try:
             if path.is_absolute():
                 path = assert_within_roots(path, roots, policy=policy)
-                identity = file_identity(path, repo_root)
             else:
                 rel = raw_norm.lstrip("./")
                 path = assert_within_roots(repo_root / rel, roots, policy=policy)
-                identity = rel
         except SecurePathError:
             continue
+
+        source_id, _bucket, matched_source = _match_source_for_path(sources, path, config)
+        identity = path_identity_for_indexing(
+            path,
+            workspace_root=workspace.root_path,
+            source_root=matched_source.root if matched_source is not None else None,
+            repo_root=repo_root,
+        )
+        if source_id == "default":
+            source_id = _infer_bucket(config, identity, path) or "default"
 
         document_id = normalize_document_id(identity)
         if document_id in seen:
@@ -216,11 +228,10 @@ def observe_paths(
             continue
 
         text = read_text_file(path)
-        bucket = _infer_bucket(config, identity, path) or "default"
         observed.append(
             ObservedDocument(
-                workspace_id=workspace_id,
-                source_id=bucket,
+                workspace_id=workspace.id,
+                source_id=source_id,
                 document_id=document_id,
                 path=identity,
                 content_hash=content_hash(text),
@@ -235,25 +246,18 @@ def observe_workspace(
     *,
     workspace_id: str = "default",
 ) -> list[ObservedDocument]:
-    """Walk configured sources and hash every readable file."""
-    from rag.indexer.run import _registered_extra_roots
+    """Walk registered Source roots and hash every readable file."""
+    from rag.indexer.source_model import discover_workspace_files, resolve_workspace_sources
 
-    repo_root = config.repo_root_path
-    specs = selected_sources_for_config(config)
-    files = walk_files(
-        repo_root,
-        specs,
-        config.index.ignore_dirs,
-        extra_roots=_registered_extra_roots(config),
-    )
+    workspace, _sources = resolve_workspace_sources(config, workspace_id=workspace_id)
+    files = discover_workspace_files(config, workspace_id=workspace.id)
     observed: list[ObservedDocument] = []
-    for path, bucket in files:
-        identity = file_identity(path, repo_root)
+    for path, source_id, _bucket, identity in files:
         text = read_text_file(path)
         observed.append(
             ObservedDocument(
-                workspace_id=workspace_id,
-                source_id=bucket or "default",
+                workspace_id=workspace.id,
+                source_id=source_id,
                 document_id=normalize_document_id(identity),
                 path=identity,
                 content_hash=content_hash(text),

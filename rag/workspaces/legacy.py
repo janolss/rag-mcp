@@ -48,7 +48,11 @@ def _legacy_sources(config: Config) -> tuple[Source, ...]:
         for pattern in config.index.lis:
             path = Path(pattern)
             if path.is_absolute():
-                lis_root = str(path.parent if path.suffix else path)
+                parts = path.parts
+                if "**" in parts:
+                    lis_root = str(Path(*parts[: parts.index("**")]))
+                else:
+                    lis_root = str(path.parent if path.suffix else path)
                 break
         sources.append(
             Source(

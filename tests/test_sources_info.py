@@ -41,7 +41,12 @@ def test_list_sources_includes_apps_and_globs():
 
 
 def test_default_instructions_contain_workflow():
-    assert "index_status" in DEFAULT_MCP_INSTRUCTIONS
+    assert "list_workspaces" in DEFAULT_MCP_INSTRUCTIONS
+    assert DEFAULT_MCP_INSTRUCTIONS.index("list_workspaces") < DEFAULT_MCP_INSTRUCTIONS.index(
+        "index_status"
+    )
+    assert "get_workspace_info" in DEFAULT_MCP_INSTRUCTIONS
+    assert "workspace_id" in DEFAULT_MCP_INSTRUCTIONS
     assert "get_context_pack" in DEFAULT_MCP_INSTRUCTIONS
     assert "trace_requirement" in DEFAULT_MCP_INSTRUCTIONS
     assert "find_gaps" in DEFAULT_MCP_INSTRUCTIONS

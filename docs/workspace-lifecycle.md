@@ -22,8 +22,9 @@ single-repo `config.yaml` to a synthetic workspace with ID `default`.
 - sources derived from enabled `knowledge` / `code` / `lis` buckets
 - `legacy=True`
 
-Existing CLI and MCP entrypoints remain unchanged. Multi-workspace APIs will
-require an explicit `workspace_id` once more than one workspace is registered.
+CLI `index` / `search` / `status` accept `--workspace-id`. Multi-workspace MCP
+and REST callers must pass `workspace_id` once more than one workspace is
+registered. Indexing walks each workspace's declared `Source` roots.
 
 ## Reload semantics
 

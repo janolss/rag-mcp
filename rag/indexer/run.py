@@ -19,9 +19,14 @@ from rag.indexer.git_info import git_head_sha
 from rag.indexer.line_ranges import attach_line_numbers
 from rag.indexer.metadata import metadata_from_path
 from rag.indexer.requirement_ids import extract_requirement_ids
-from rag.indexer.sources import selected_sources_for_config
-from rag.indexer.walk import file_identity, read_text_file, walk_files
+from rag.indexer.source_model import (
+    discover_workspace_files,
+    registered_source_roots,
+    resolve_workspace_sources,
+)
+from rag.indexer.walk import file_identity, path_identity_for_indexing, read_text_file
 from rag.store import VectorStore
+from rag.workspaces import WorkspaceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +37,8 @@ def _chunk_file(
     rel: str,
     *,
     bucket: str | None = None,
+    workspace_id: str = "default",
+    source_id: str | None = None,
 ) -> list[dict[str, Any]]:
     meta = metadata_from_path(rel, config.index, bucket=bucket)
     text = read_text_file(path)
@@ -61,6 +68,7 @@ def _chunk_file(
         )
 
     patterns = config.index.requirement_id_patterns
+    resolved_source = source_id or bucket or meta["type"] or "default"
     chunks: list[dict[str, Any]] = []
     for index, piece in enumerate(pieces):
         content = piece["content"]
@@ -75,9 +83,8 @@ def _chunk_file(
             "chunk_index": index,
             "content": content,
             "requirement_ids": extract_requirement_ids(id_source, patterns),
-            # Default legacy workspace/source; multi-workspace callers override.
-            "workspace_id": "default",
-            "source_id": bucket or meta["type"] or "default",
+            "workspace_id": workspace_id,
+            "source_id": resolved_source,
         }
         for key in ("symbol", "symbol_kind", "chunk_key", "imports"):
             if key in piece:
@@ -89,9 +96,14 @@ def _chunk_file(
     return chunks
 
 
-def _registered_extra_roots(config: Config) -> list[Path]:
-    """Absolute LIS (and future external) roots that are explicitly configured."""
-    roots: list[Path] = []
+def _registered_extra_roots(
+    config: Config,
+    *,
+    workspace_id: str | None = None,
+) -> list[Path]:
+    """Registered source roots plus absolute LIS globs from legacy config."""
+    roots: list[Path] = list(registered_source_roots(config, workspace_id=workspace_id))
+    seen = {root.resolve() for root in roots}
     for pattern in config.index.lis:
         path = Path(pattern)
         if not path.is_absolute():
@@ -99,33 +111,75 @@ def _registered_extra_roots(config: Config) -> list[Path]:
         # For globs like /mirror/docs/**/*.md, register the stable parent prefix.
         parts = path.parts
         if "**" in parts:
-            roots.append(Path(*parts[: parts.index("**")]))
+            candidate = Path(*parts[: parts.index("**")])
         else:
-            roots.append(path.parent if path.suffix else path)
+            candidate = path.parent if path.suffix else path
+        resolved = candidate.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            roots.append(resolved)
     return roots
 
 
-def build_chunks(config: Config) -> list[dict[str, Any]]:
-    repo_root = config.repo_root_path
-    specs = selected_sources_for_config(config)
-    files = walk_files(
-        repo_root,
-        specs,
-        config.index.ignore_dirs,
-        extra_roots=_registered_extra_roots(config),
-    )
+def _resolve_index_workspace_ids(
+    config: Config,
+    workspace_id: str | None,
+) -> list[str]:
+    registry = WorkspaceRegistry.from_config(config)
+    ids = registry.ids()
+    if workspace_id is None or workspace_id == "*":
+        return ids
+    registry.get(workspace_id)  # raise if unknown
+    return [workspace_id]
+
+
+def build_chunks(
+    config: Config,
+    *,
+    workspace_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Build chunks by walking registered Source roots for one or all workspaces.
+
+    When ``workspace_id`` is omitted and multiple workspaces exist, chunks for
+    every registered workspace are included (safe full rebuild).
+    """
+    target_ids = _resolve_index_workspace_ids(config, workspace_id)
     chunks: list[dict[str, Any]] = []
+    file_count = 0
 
-    for path, bucket in files:
-        rel = file_identity(path, repo_root)
-        chunks.extend(_chunk_file(config, path, rel, bucket=bucket))
+    for wid in target_ids:
+        files = discover_workspace_files(config, workspace_id=wid)
+        file_count += len(files)
+        for path, source_id, bucket, identity in files:
+            chunks.extend(
+                _chunk_file(
+                    config,
+                    path,
+                    identity,
+                    bucket=bucket,
+                    workspace_id=wid,
+                    source_id=source_id,
+                )
+            )
 
-    logger.info("Built %d chunks from %d files", len(chunks), len(files))
+    logger.info(
+        "Built %d chunks from %d files across workspaces %s",
+        len(chunks),
+        file_count,
+        target_ids,
+    )
     return chunks
 
 
-def build_chunks_for_files(config: Config, rel_paths: Sequence[str]) -> list[dict[str, Any]]:
+def build_chunks_for_files(
+    config: Config,
+    rel_paths: Sequence[str],
+    *,
+    workspace_id: str | None = None,
+) -> list[dict[str, Any]]:
     """Build chunks for explicit paths (repo-relative or absolute)."""
+    workspace, sources = resolve_workspace_sources(config, workspace_id=workspace_id)
     repo_root = config.repo_root_path
     chunks: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -138,30 +192,74 @@ def build_chunks_for_files(config: Config, rel_paths: Sequence[str]) -> list[dic
         from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
 
         policy = PathSecurityPolicy()
-        roots = [repo_root.resolve(), *[r.resolve() for r in _registered_extra_roots(config)]]
+        roots = [
+            repo_root.resolve(),
+            *[r.resolve() for r in _registered_extra_roots(config, workspace_id=workspace.id)],
+        ]
         try:
             if path.is_absolute():
                 path = assert_within_roots(path, roots, policy=policy)
-                identity = file_identity(path, repo_root)
             else:
                 rel = raw_norm.lstrip("./")
                 path = assert_within_roots(repo_root / rel, roots, policy=policy)
-                identity = rel
         except SecurePathError as exc:
             raise RuntimeError(str(exc)) from exc
 
+        source_id, bucket, matched_source = _match_source_for_path(sources, path, config)
+        identity = path_identity_for_indexing(
+            path,
+            workspace_root=workspace.root_path,
+            source_root=matched_source.root if matched_source is not None else None,
+            repo_root=repo_root,
+        )
         if identity in seen:
             continue
         seen.add(identity)
         if not path.is_file():
             logger.warning("Skipping missing file for partial index: %s", identity)
             continue
-        # Infer lis bucket when path matches a configured lis glob identity prefix
-        bucket = _infer_bucket(config, identity, path)
-        chunks.extend(_chunk_file(config, path, identity, bucket=bucket))
+        chunks.extend(
+            _chunk_file(
+                config,
+                path,
+                identity,
+                bucket=bucket,
+                workspace_id=workspace.id,
+                source_id=source_id,
+            )
+        )
 
     logger.info("Built %d chunks from %d requested files", len(chunks), len(seen))
     return chunks
+
+
+def _match_source_for_path(
+    sources: tuple,
+    path: Path,
+    config: Config,
+) -> tuple[str, str | None, Any]:
+    """Pick the best Source for an explicit path; fall back to legacy bucket inference."""
+    from rag.domain.models import Source
+
+    resolved = path.resolve()
+    # Prefer the longest matching source root (nested sources win).
+    matched: Source | None = None
+    matched_len = -1
+    for source in sources:
+        root = Path(source.root).resolve()
+        try:
+            resolved.relative_to(root)
+        except ValueError:
+            continue
+        root_len = len(root.parts)
+        if root_len > matched_len:
+            matched = source
+            matched_len = root_len
+    if matched is not None:
+        return matched.id, matched.bucket or matched.id, matched
+    identity = file_identity(path, config.repo_root_path)
+    bucket = _infer_bucket(config, identity, path)
+    return (bucket or "default"), bucket, None
 
 
 def _infer_bucket(config: Config, identity: str, path: Path) -> str | None:
@@ -214,19 +312,44 @@ def _status_base(config: Config, *, chunk_count: int, vector_size: int) -> dict[
     }
 
 
-def run_index(config: Config) -> dict[str, Any]:
+def run_index(config: Config, *, workspace_id: str | None = None) -> dict[str, Any]:
+    """
+    Full index for one workspace or all registered workspaces.
+
+    When a single workspace is requested among several peers, vectors for that
+    workspace are replaced in the active collection so sibling workspaces are
+    preserved. Otherwise a staging rebuild swaps the whole shared collection.
+    """
     embedder = EmbeddingClient(config.embedding)
     ok, message = embedder.health_check()
     if not ok:
         raise RuntimeError(f"Embedding endpoint unhealthy: {message}")
     logger.info("Embedding health: %s", message)
 
-    chunks = build_chunks(config)
+    target_ids = _resolve_index_workspace_ids(config, workspace_id)
+    registry = WorkspaceRegistry.from_config(config)
+    scoped_single = (
+        workspace_id is not None
+        and workspace_id != "*"
+        and len(registry.ids()) > 1
+        and len(target_ids) == 1
+    )
+
+    chunks = build_chunks(config, workspace_id=workspace_id)
     if not chunks:
-        raise RuntimeError("No chunks produced — check index.sources and repo_root")
+        raise RuntimeError("No chunks produced — check workspace sources / index.sources and roots")
 
     sample_vector = embedder.embed_texts([chunks[0]["content"]], for_query=False)[0]
     vector_size = len(sample_vector)
+
+    if scoped_single:
+        return _run_index_workspace_inplace(
+            config,
+            embedder=embedder,
+            chunks=chunks,
+            workspace_id=target_ids[0],
+            vector_size=vector_size,
+        )
 
     router = CollectionRouter(config)
     staging = router.staging_collection()
@@ -260,6 +383,7 @@ def run_index(config: Config) -> dict[str, Any]:
 
     status = _status_base(config, chunk_count=count, vector_size=vector_size)
     status["index_mode"] = "full"
+    status["workspace_ids"] = target_ids
     status["active_collection"] = router.active_collection()
     status["previous_collection"] = previous_active
     from rag.indexer.index_manifest import current_manifest, write_manifest
@@ -276,6 +400,51 @@ def run_index(config: Config) -> dict[str, Any]:
     return status
 
 
+def _run_index_workspace_inplace(
+    config: Config,
+    *,
+    embedder: EmbeddingClient,
+    chunks: list[dict[str, Any]],
+    workspace_id: str,
+    vector_size: int,
+) -> dict[str, Any]:
+    """Replace one workspace's vectors without wiping peer workspaces."""
+    router = CollectionRouter(config)
+    store = VectorStore(config)
+    try:
+        store.ensure_collection(vector_size)
+        store.delete_by_workspace(workspace_id)
+        texts = [c["content"] for c in chunks]
+        logger.info(
+            "Embedding %d chunks for workspace %s into active '%s'",
+            len(texts),
+            workspace_id,
+            router.active_collection(),
+        )
+        vectors = embedder.embed_texts(texts, for_query=False)
+        count = store.upsert_chunks(chunks, vectors)
+        if count <= 0:
+            raise RuntimeError(f"workspace index for {workspace_id!r} produced zero points")
+        points = store.count()
+    finally:
+        store.close()
+
+    status = _status_base(config, chunk_count=points, vector_size=vector_size)
+    status["index_mode"] = "workspace"
+    status["workspace_id"] = workspace_id
+    status["workspace_ids"] = [workspace_id]
+    status["workspace_chunk_count"] = count
+    status["active_collection"] = router.active_collection()
+    _write_status(config.status_file_path, status)
+    logger.info(
+        "Indexed %d chunks for workspace %s into '%s'",
+        count,
+        workspace_id,
+        router.active_collection(),
+    )
+    return status
+
+
 def _config_with_collection(config: Config, collection: str) -> Config:
     """Shallow-copy config pointing VectorStore at another collection name."""
     from copy import deepcopy
@@ -285,7 +454,12 @@ def _config_with_collection(config: Config, collection: str) -> Config:
     return cloned
 
 
-def run_index_files(config: Config, rel_paths: Sequence[str]) -> dict[str, Any]:
+def run_index_files(
+    config: Config,
+    rel_paths: Sequence[str],
+    *,
+    workspace_id: str | None = None,
+) -> dict[str, Any]:
     """Upsert chunks for specific files using the incremental registry flow."""
     from rag.indexer.incremental import run_incremental
 
@@ -293,13 +467,15 @@ def run_index_files(config: Config, rel_paths: Sequence[str]) -> dict[str, Any]:
     if not normalized:
         raise RuntimeError("No files provided for partial index")
 
-    stats = run_incremental(config, list(normalized))
+    workspace, _sources = resolve_workspace_sources(config, workspace_id=workspace_id)
+    stats = run_incremental(config, list(normalized), workspace_id=workspace.id)
     status = _status_base(
         config,
         chunk_count=int(stats.get("points_count") or 0),
         vector_size=int((read_status(config) or {}).get("vector_size") or 0),
     )
     status["index_mode"] = "partial"
+    status["workspace_id"] = workspace.id
     status["last_indexed_files"] = normalized
     status["incremental"] = stats
     _write_status(config.status_file_path, status)

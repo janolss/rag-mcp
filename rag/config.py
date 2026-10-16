@@ -48,15 +48,17 @@ DEFAULT_IGNORE_DIRS: tuple[str, ...] = (
     "qdrant_data",
 )
 
-DEFAULT_MCP_INSTRUCTIONS = """You have access to a private RAG index for this workspace (requirements/docs + code).
+DEFAULT_MCP_INSTRUCTIONS = """You have access to a private RAG index for one or more workspaces (requirements/docs + code).
 
 Workflow (mandatory):
-1. Call index_status before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index.
-2. For scoped app work, call list_sources (or use known apps) and pass app=<name> to code tools.
-3. Before implementing a change: call get_context_pack(task) or impact_of_change(change). Do not invent architecture from memory.
-4. When a requirement ID or requirement text is given: call trace_requirement first.
-5. For PR/review quality: use prompt pr-review or call find_gaps on the affected area; require explicit requirement→code→test links; state gaps clearly.
-6. Prefer search_knowledge for docs/architecture and search_code for implementation details when you need targeted follow-ups after a context pack.
+1. Start with list_workspaces to discover registered workspace ids (and tags/names). Prefer this before any search or status call when the target workspace is unclear.
+2. Call get_workspace_info(workspace_id) and/or list_sources(workspace_id) for the chosen workspace. Pass workspace_id into search / search_knowledge / search_code / get_index_status when more than one workspace is registered (safe to pass with a single workspace too).
+3. Call get_index_status (or legacy index_status) before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index for that workspace.
+4. For scoped app work, use list_sources / known apps and pass app=<name> to code tools.
+5. Before implementing a change: call get_context_pack(task) or impact_of_change(change). Do not invent architecture from memory.
+6. When a requirement ID or requirement text is given: call trace_requirement first.
+7. For PR/review quality: use prompt pr-review or call find_gaps on the affected area; require explicit requirement→code→test links; state gaps clearly.
+8. Prefer search_knowledge for docs/architecture and search_code for implementation details when you need targeted follow-ups after a context pack (include workspace_id).
 
 Rules:
 - Cite file paths (and line ranges when present) from tool results.
