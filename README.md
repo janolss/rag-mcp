@@ -86,8 +86,9 @@ Partial upsert via incremental inventory (hash registry, skip unchanged, safe de
 ```
 
 See [docs/incremental-indexing.md](docs/incremental-indexing.md),
-[docs/search-scopes.md](docs/search-scopes.md), and
-[docs/mcp-contracts.md](docs/mcp-contracts.md). After large refactors or schema
+[docs/search-scopes.md](docs/search-scopes.md),
+[docs/mcp-contracts.md](docs/mcp-contracts.md), and the
+[acceptance matrix](docs/acceptance-matrix.md). After large refactors or schema
 changes, prefer a full `index`.
 
 5. Add an MCP server (use **absolute** paths; no spaces in paths):
