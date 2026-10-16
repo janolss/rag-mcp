@@ -13,6 +13,12 @@ from starlette.routing import Mount, Route
 
 from rag.config import Config
 from rag.http_schemas import SearchRequest
+from rag.observability import (
+    METRICS,
+    correlation_scope,
+    get_correlation_id,
+    new_correlation_id,
+)
 from rag.services import (
     NotFoundError,
     ServiceApp,
@@ -23,6 +29,8 @@ from rag.services import (
 from rag.version import package_version
 
 logger = logging.getLogger(__name__)
+
+CORRELATION_HEADER = "x-correlation-id"
 
 
 def _error_response(exc: Exception, *, status: int | None = None) -> JSONResponse:
@@ -134,15 +142,46 @@ def build_api_routes(config: Config, services: ServiceApp | None = None) -> list
     async def index_status(request: Request) -> JSONResponse:
         params = request.query_params
         try:
-            payload = app_services.status.get_index_status(
-                workspace_id=params.get("workspace_id"),
-                source_id=params.get("source_id"),
-            )
+            with METRICS.timer("rag_index_status_latency_seconds"):
+                payload = app_services.status.get_index_status(
+                    workspace_id=params.get("workspace_id"),
+                    source_id=params.get("source_id"),
+                )
+            METRICS.incr("rag_index_status_total")
         except Exception as exc:
             return _error_response(exc)
-        return JSONResponse(payload)
+        return _json_with_correlation(payload)
+
+    async def health(_request: Request) -> JSONResponse:
+        return _json_with_correlation({"status": "ok"})
+
+    async def ready(_request: Request) -> JSONResponse:
+        try:
+            report = app_services.status.get_index_status()
+            lifecycle = report.get("lifecycle")
+            ready_ok = lifecycle in {"ready", "partial"}
+            body = {
+                "ready": ready_ok,
+                "lifecycle": lifecycle,
+                "workspace_id": report.get("workspace_id"),
+            }
+            return _json_with_correlation(body, status=200 if ready_ok else 503)
+        except Exception as exc:
+            return _error_response(exc)
+
+    async def metrics(_request: Request) -> JSONResponse:
+        from starlette.responses import PlainTextResponse
+
+        return PlainTextResponse(
+            METRICS.render_prometheus(),
+            media_type="text/plain; version=0.0.4",
+            headers={CORRELATION_HEADER: get_correlation_id() or new_correlation_id()},
+        )
 
     return [
+        Route("/health", endpoint=health, methods=["GET"]),
+        Route("/ready", endpoint=ready, methods=["GET"]),
+        Route("/metrics", endpoint=metrics, methods=["GET"]),
         Route("/api/v1", endpoint=api_root, methods=["GET"]),
         Route("/api/v1/workspaces", endpoint=list_workspaces, methods=["GET"]),
         Route(
@@ -161,6 +200,33 @@ def build_api_routes(config: Config, services: ServiceApp | None = None) -> list
     ]
 
 
+def _json_with_correlation(payload: Any, *, status: int = 200) -> JSONResponse:
+    cid = get_correlation_id() or new_correlation_id()
+    return JSONResponse(
+        payload,
+        status_code=status,
+        headers={CORRELATION_HEADER: cid},
+    )
+
+
+class CorrelationMiddleware:
+    """Propagate/generate X-Correlation-ID for each request."""
+
+    def __init__(self, app: Any):
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        headers = {
+            k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])
+        }
+        incoming = headers.get(CORRELATION_HEADER) or new_correlation_id()
+        with correlation_scope(incoming):
+            await self.app(scope, receive, send)
+
+
 def mount_api_routes(app: Any, config: Config, services: ServiceApp | None = None) -> None:
     """Insert /api/v1 routes onto an existing Starlette app (MCP HTTP host)."""
     for route in reversed(build_api_routes(config, services=services)):
@@ -169,7 +235,9 @@ def mount_api_routes(app: Any, config: Config, services: ServiceApp | None = Non
 
 def create_api_app(config: Config, services: ServiceApp | None = None) -> Starlette:
     """Standalone Starlette app exposing only /api/v1 (useful for tests)."""
-    return Starlette(routes=build_api_routes(config, services=services))
+    app = Starlette(routes=build_api_routes(config, services=services))
+    app.add_middleware(CorrelationMiddleware)
+    return app
 
 
 def create_api_mount(config: Config, services: ServiceApp | None = None) -> Mount:
