@@ -78,8 +78,8 @@ def test_scope_source_requires_source_id():
         build_type_app_filter(workspace_id="ws", scope="source")
 
 
-def test_scope_related_and_global_disabled():
-    with pytest.raises(ScopeDisabledError, match="related"):
+def test_scope_related_requires_expansion_global_disabled():
+    with pytest.raises(ValueError, match="related_workspace_ids"):
         build_type_app_filter(workspace_id="ws", scope="related")
     with pytest.raises(ScopeDisabledError, match="global"):
         build_type_app_filter(workspace_id="ws", scope="global")

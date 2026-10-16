@@ -142,8 +142,8 @@ def test_source_document_language_filters(tmp_path: Path):
         store.close()
 
 
-def test_related_and_global_scopes_disabled():
-    with pytest.raises(ScopeDisabledError, match="related"):
+def test_global_scope_disabled_related_requires_expansion():
+    with pytest.raises(ValueError, match="related_workspace_ids"):
         build_type_app_filter(workspace_id="ws", scope="related")
     with pytest.raises(ScopeDisabledError, match="global"):
         build_type_app_filter(workspace_id="ws", scope="global")

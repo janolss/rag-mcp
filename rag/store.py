@@ -18,7 +18,8 @@ NAMESPACE = uuid.UUID("a4e2e5e0-6b8a-4f3d-9c1e-2d7f8a9b0c3e")
 
 SearchScope = Literal["workspace", "source", "related", "global"]
 VALID_SCOPES: frozenset[str] = frozenset({"workspace", "source", "related", "global"})
-DISABLED_SCOPES: frozenset[str] = frozenset({"related", "global"})
+# global stays disabled until an explicit cross-tenant policy exists.
+DISABLED_SCOPES: frozenset[str] = frozenset({"global"})
 
 
 class QdrantLockError(RuntimeError):
@@ -395,6 +396,7 @@ class VectorStore:
         process_area: str | None = None,
         domain: str | None = None,
         status: str | None = None,
+        related_workspace_ids: list[str] | None = None,
     ) -> list[models.ScoredPoint]:
         if not self.collection_exists():
             raise RuntimeError(
@@ -415,6 +417,7 @@ class VectorStore:
             process_area=process_area,
             domain=domain,
             status=status,
+            related_workspace_ids=related_workspace_ids,
         )
         results = self.client.query_points(
             collection_name=self.collection,
@@ -481,7 +484,7 @@ def _workspace_condition(
 
 
 def resolve_search_scope(scope: SearchScope | str | None) -> str:
-    """Validate scope; related/global stay disabled until later phases."""
+    """Validate scope; ``global`` stays disabled."""
     normalized = (scope or "workspace").strip().lower()
     if normalized not in VALID_SCOPES:
         raise ValueError(
@@ -489,8 +492,8 @@ def resolve_search_scope(scope: SearchScope | str | None) -> str:
         )
     if normalized in DISABLED_SCOPES:
         raise ScopeDisabledError(
-            f"search scope {normalized!r} is disabled until relationships "
-            "and authorization are implemented; use scope='workspace' or 'source'"
+            f"search scope {normalized!r} is disabled; use scope='workspace', "
+            "'source', or 'related'"
         )
     return normalized
 
@@ -510,20 +513,41 @@ def build_type_app_filter(
     process_area: str | None = None,
     domain: str | None = None,
     status: str | None = None,
+    related_workspace_ids: list[str] | None = None,
 ) -> models.Filter | None:
     """
     Build a Qdrant payload filter.
 
     ``workspace_id`` is required unless ``allow_legacy=True`` (single default
-    workspace compatibility). Scopes ``related`` and ``global`` raise
-    ``ScopeDisabledError``.
+    workspace compatibility). Scope ``global`` raises ``ScopeDisabledError``.
+    Scope ``related`` requires ``related_workspace_ids`` (authorized expansion).
     """
     resolved_scope = resolve_search_scope(scope)
     must: list[models.FieldCondition] = []
 
-    workspace_clause = _workspace_condition(workspace_id=workspace_id, allow_legacy=allow_legacy)
-    if workspace_clause is not None:
-        must.append(workspace_clause)
+    if resolved_scope == "related":
+        if related_workspace_ids is None:
+            raise ValueError(
+                "scope='related' requires related_workspace_ids "
+                "(authorized expansion from the starting workspace)"
+            )
+        ids = list(related_workspace_ids)
+        if workspace_id and workspace_id not in ids:
+            ids = [workspace_id, *ids]
+        if not ids:
+            raise ValueError("scope='related' related_workspace_ids cannot be empty")
+        must.append(
+            models.FieldCondition(
+                key="workspace_id",
+                match=models.MatchAny(any=ids),
+            )
+        )
+    else:
+        workspace_clause = _workspace_condition(
+            workspace_id=workspace_id, allow_legacy=allow_legacy
+        )
+        if workspace_clause is not None:
+            must.append(workspace_clause)
 
     if resolved_scope == "source":
         if not source_id:

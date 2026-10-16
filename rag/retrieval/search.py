@@ -128,6 +128,7 @@ def search_hits(
     language: str | None = None,
     scope: str = "workspace",
     allow_legacy: bool | None = None,
+    related_workspace_ids: list[str] | None = None,
     top_k: int | None = None,
     score_threshold: float | None = None,
     store: VectorStore | None = None,
@@ -145,8 +146,8 @@ def search_hits(
     # Legacy MCP tools default to the synthetic default workspace. Multi-workspace
     # configs must pass an explicit workspace_id (allow_legacy=False).
     resolved_workspace = workspace_id
+    registry = WorkspaceRegistry.from_config(config)
     if resolved_workspace is None:
-        registry = WorkspaceRegistry.from_config(config)
         if len(registry) == 1 and registry.ids()[0] == "default":
             resolved_workspace = "default"
             legacy = True if allow_legacy is None else allow_legacy
@@ -159,6 +160,21 @@ def search_hits(
                 )
     else:
         legacy = bool(allow_legacy) if allow_legacy is not None else False
+
+    expanded_related = related_workspace_ids
+    if (scope or "workspace").strip().lower() == "related" and expanded_related is None:
+        from rag.relationships.registry import RelationshipRegistry
+        from rag.security.http_auth import require_principal
+
+        principal = require_principal()
+        assert resolved_workspace is not None
+        rel_registry = RelationshipRegistry.from_workspace_registry(registry)
+        expanded_related = rel_registry.related_workspace_ids(
+            resolved_workspace,
+            principal=principal,
+            include_self=True,
+            max_depth=1,
+        )
 
     owns_store = store is None
     try:
@@ -182,6 +198,7 @@ def search_hits(
             process_area=process_area,
             domain=domain,
             status=status,
+            related_workspace_ids=expanded_related,
         )
         hits = apply_path_prefix(hits, path_prefix)
         return rerank_hits(

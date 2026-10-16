@@ -1,4 +1,4 @@
-# Search filters and scopes (Phase 10)
+# Search filters and scopes (Phase 10+)
 
 Storage-layer search and delete helpers require a workspace boundary.
 
@@ -27,11 +27,11 @@ In multi-workspace mode, callers (and `search_hits`) must pass an explicit
 ## Scopes
 
 | Scope | Behavior |
-|-------|----------|
+|------|----------|
 | `workspace` (default) | Restrict to `workspace_id` |
 | `source` | Require `source_id` in addition to workspace |
-| `related` | **Disabled** — raises `ScopeDisabledError` |
+| `related` | Starting workspace + authorized outbound relationships |
 | `global` | **Disabled** — raises `ScopeDisabledError` |
 
-`related` and `global` stay disabled until relationship expansion and
-authorization land in later phases.
+`related` expands via `RelationshipRegistry` and the caller's principal
+allowlist. `global` stays disabled.
