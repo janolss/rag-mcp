@@ -73,6 +73,9 @@ def _chunk_file(
             "chunk_index": index,
             "content": content,
             "requirement_ids": extract_requirement_ids(id_source, patterns),
+            # Default legacy workspace/source; multi-workspace callers override.
+            "workspace_id": "default",
+            "source_id": bucket or meta["type"] or "default",
         }
         chunk.update(lis_fields)
         chunks.append(chunk)

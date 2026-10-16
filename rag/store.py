@@ -155,34 +155,49 @@ class VectorStore:
 
         points = []
         for chunk, vector in zip(chunks, vectors, strict=True):
-            point_id = make_point_id(
-                chunk["file"], str(chunk.get("chunk_index", 0)), chunk["content"]
-            )
-            payload: dict[str, Any] = {
-                "type": chunk["type"],
-                "app": chunk["app"],
-                "file": chunk["file"],
-                "language": chunk.get("language"),
-                "section": chunk.get("section"),
-                "chunk_index": chunk.get("chunk_index", 0),
-                "content": chunk["content"],
-                "requirement_ids": list(chunk.get("requirement_ids") or []),
-            }
-            for lis_key in (
-                "document_id",
-                "doc_type",
-                "process_area",
-                "domain",
-                "status",
-                "title",
-            ):
-                value = chunk.get(lis_key)
-                if value:
-                    payload[lis_key] = value
-            if chunk.get("start_line") is not None:
-                payload["start_line"] = chunk["start_line"]
-            if chunk.get("end_line") is not None:
-                payload["end_line"] = chunk["end_line"]
+            workspace_id = chunk.get("workspace_id")
+            source_id = chunk.get("source_id")
+            if workspace_id and source_id:
+                from rag.indexer.payload import build_payload
+
+                payload = build_payload(
+                    chunk,
+                    workspace_id=str(workspace_id),
+                    source_id=str(source_id),
+                    revision=int(chunk.get("revision") or 1),
+                )
+                point_id = payload.pop("point_id")
+            else:
+                # Legacy single-workspace payload (content included in ID).
+                point_id = make_point_id(
+                    chunk["file"], str(chunk.get("chunk_index", 0)), chunk["content"]
+                )
+                payload = {
+                    "type": chunk["type"],
+                    "app": chunk["app"],
+                    "file": chunk["file"],
+                    "language": chunk.get("language"),
+                    "section": chunk.get("section"),
+                    "chunk_index": chunk.get("chunk_index", 0),
+                    "content": chunk["content"],
+                    "requirement_ids": list(chunk.get("requirement_ids") or []),
+                    "schema_version": 0,
+                }
+                for lis_key in (
+                    "document_id",
+                    "doc_type",
+                    "process_area",
+                    "domain",
+                    "status",
+                    "title",
+                ):
+                    value = chunk.get(lis_key)
+                    if value:
+                        payload[lis_key] = value
+                if chunk.get("start_line") is not None:
+                    payload["start_line"] = chunk["start_line"]
+                if chunk.get("end_line") is not None:
+                    payload["end_line"] = chunk["end_line"]
             points.append(
                 models.PointStruct(
                     id=point_id,
