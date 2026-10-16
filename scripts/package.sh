@@ -29,6 +29,8 @@ INCLUDE=(
   docker-compose.qdrant.yml
   README.md
   RAG_ARCHITECTURE.md
+  LICENSE
+  CONTRIBUTING.md
   package.json
 )
 
