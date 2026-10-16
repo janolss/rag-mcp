@@ -98,8 +98,7 @@ def trace_requirement(
         f"## Requirement\n{normalized}",
         "## Documentation\n" + (format_hits(doc_hits) if doc_hits else "_None_"),
         "## Code/Tests\n" + (format_hits(code_hits) if code_hits else "_None_"),
-        "## Unmatched\n"
-        + ("\n".join(f"- {u}" for u in unmatched) if unmatched else "- None"),
+        "## Unmatched\n" + ("\n".join(f"- {u}" for u in unmatched) if unmatched else "- None"),
     ]
     return "\n\n".join(parts)
 

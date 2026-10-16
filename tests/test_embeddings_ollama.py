@@ -6,7 +6,6 @@ import json
 
 import httpx
 import pytest
-
 from rag.config import EmbeddingConfig
 from rag.embeddings import EmbeddingClient
 
@@ -22,9 +21,7 @@ class _Transport(httpx.BaseTransport):
 
 
 def test_ollama_api_embeddings_uses_prompt(monkeypatch: pytest.MonkeyPatch):
-    transport = _Transport(
-        lambda req: httpx.Response(200, json={"embedding": [0.1, 0.2, 0.3]})
-    )
+    transport = _Transport(lambda req: httpx.Response(200, json={"embedding": [0.1, 0.2, 0.3]}))
     real_client = httpx.Client
 
     def fake_client(*args, **kwargs):
@@ -54,9 +51,7 @@ def test_ollama_api_embeddings_uses_prompt(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_ollama_api_embed_batches_input(monkeypatch: pytest.MonkeyPatch):
-    transport = _Transport(
-        lambda req: httpx.Response(200, json={"embeddings": [[0.1], [0.2]]})
-    )
+    transport = _Transport(lambda req: httpx.Response(200, json={"embeddings": [[0.1], [0.2]]}))
     real_client = httpx.Client
 
     def fake_client(*args, **kwargs):

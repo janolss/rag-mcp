@@ -9,7 +9,9 @@
     "rag:status": ".venv/bin/python -m rag.cli --config config.yaml status",
     "rag:mcp": ".venv/bin/python -m rag.mcp_server",
     "rag:mcp:http": ".venv/bin/python -m rag.mcp_server --transport http --host 127.0.0.1 --port 8000",
-    "rag:test": ".venv/bin/python -m pytest tests/ -v",
+    "rag:test": ".venv/bin/python -m pytest tests/ -q",
+    "rag:lint": ".venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .",
+    "rag:verify": "npm run rag:lint && npm run rag:test",
     "package": "bash scripts/package.sh"
   }
 }

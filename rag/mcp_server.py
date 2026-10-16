@@ -7,7 +7,8 @@ import logging
 import os
 import signal
 import sys
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import anyio
 from dotenv import load_dotenv
@@ -76,7 +77,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             embedder = runtime.get_embedder()
         except QdrantLockError as exc:
             return tool_error(str(exc))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("Failed to initialize RAG runtime")
             return tool_error(f"failed to initialize RAG runtime: {exc}")
 
@@ -90,7 +91,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
 
         try:
             text = await anyio.to_thread.run_sync(_call)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("RAG tool call failed")
             return tool_error(str(exc))
         return as_tool_result(text)
@@ -439,8 +440,7 @@ def main(argv: list[str] | None = None) -> None:
     url = mcp_public_url(config)
     if warmup_error:
         logger.warning(
-            "Starting MCP without an open Qdrant connection (%s). "
-            "Tools will retry on each call.",
+            "Starting MCP without an open Qdrant connection (%s). Tools will retry on each call.",
             warmup_error,
         )
     else:

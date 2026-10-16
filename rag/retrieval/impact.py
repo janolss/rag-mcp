@@ -116,13 +116,10 @@ def impact_of_change(
     return "\n\n".join(
         [
             f"## Change\n{change}",
-            "## Likely affected code\n"
-            + (format_hits(code_hits) if code_hits else "_None_"),
-            "## Related requirements/docs\n"
-            + (format_hits(doc_hits) if doc_hits else "_None_"),
+            "## Likely affected code\n" + (format_hits(code_hits) if code_hits else "_None_"),
+            "## Related requirements/docs\n" + (format_hits(doc_hits) if doc_hits else "_None_"),
             "## Suggested tests\n" + (format_hits(test_hits) if test_hits else "_None_"),
-            "## Risk notes\n"
-            + ("\n".join(f"- {r}" for r in risks) if risks else "- None flagged"),
+            "## Risk notes\n" + ("\n".join(f"- {r}" for r in risks) if risks else "- None flagged"),
         ]
     )
 

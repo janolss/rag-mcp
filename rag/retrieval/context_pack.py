@@ -90,9 +90,7 @@ def get_context_pack(
 
     sections = [f"## Task\n{task}"]
     if caps.knowledge:
-        sections.append(
-            "## Documentation\n" + (format_hits(doc_hits) if doc_hits else "_None_")
-        )
+        sections.append("## Documentation\n" + (format_hits(doc_hits) if doc_hits else "_None_"))
     if caps.lis:
         sections.append("## LIS\n" + (format_hits(lis_hits) if lis_hits else "_None_"))
     if caps.code:
@@ -101,8 +99,7 @@ def get_context_pack(
         [
             "## Files to read first\n"
             + ("\n".join(f"- {f}" for f in files) if files else "_None_"),
-            "## Gaps\n"
-            + ("\n".join(f"- {g}" for g in gaps) if gaps else "- None detected"),
+            "## Gaps\n" + ("\n".join(f"- {g}" for g in gaps) if gaps else "- None detected"),
         ]
     )
     return "\n\n".join(sections)

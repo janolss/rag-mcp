@@ -102,7 +102,7 @@ def rerank_hits(
         # Preserve original score attribute for display as final blended score
         try:
             hit.score = final
-        except Exception:  # noqa: BLE001 - ScoredPoint may be frozen in some versions
+        except Exception:
             pass
         scored.append((final, hit))
     scored.sort(key=lambda item: item[0], reverse=True)
@@ -133,12 +133,9 @@ def search_hits(
     limit = top_k or config.search.top_k
     # Over-fetch when path filter or lexical re-rank may drop/reorder candidates
     fetch_k = limit * 3 if (path_prefix or config.search.lexical_weight > 0) else limit
-    threshold = (
-        config.search.score_threshold if score_threshold is None else score_threshold
-    )
+    threshold = config.search.score_threshold if score_threshold is None else score_threshold
 
     owns_store = store is None
-    owns_embedder = embedder is None
     try:
         store = store or VectorStore(config)
         embedder = embedder or EmbeddingClient(config.embedding)

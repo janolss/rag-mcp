@@ -13,11 +13,19 @@ dependencies = [
   "httpx>=0.28.1,<1",
   "pyyaml>=6.0.3,<7",
   "python-dotenv>=1.2.4,<2",
+  "pydantic>=2.10,<3",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=9.1.1,<10"]
+dev = [
+  "pytest>=9.1.1,<10",
+  "ruff>=0.9,<1",
+]
 cli = ["mcp[cli]>=2.3.0,<3"]
+formats = [
+  "pypdf>=5.0,<6",
+  "python-docx>=1.1,<2",
+]
 
 [project.scripts]
 rag-mcp = "rag.mcp_server:main"
@@ -25,3 +33,44 @@ rag-cli = "rag.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["rag*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["rag", "tests", "run_mcp.py"]
+exclude = [
+  ".venv",
+  "qdrant_data",
+  "dist",
+  "build",
+  "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",
+  "F",
+  "I",
+  "UP",
+  "B",
+  "SIM",
+  "RUF",
+]
+ignore = [
+  "E501",
+  "SIM105",
+  "SIM108",
+  "SIM110",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

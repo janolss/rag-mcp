@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from qdrant_client import QdrantClient, models
 
@@ -84,7 +85,7 @@ class VectorStore:
                     retries,
                 )
                 return QdrantClient(path=path)
-            except Exception as exc:  # noqa: BLE001 - qdrant raises RuntimeError / OSError variants
+            except Exception as exc:
                 last_exc = exc
                 if not _is_lock_error(exc):
                     raise
@@ -153,8 +154,10 @@ class VectorStore:
             return 0
 
         points = []
-        for chunk, vector in zip(chunks, vectors):
-            point_id = make_point_id(chunk["file"], str(chunk.get("chunk_index", 0)), chunk["content"])
+        for chunk, vector in zip(chunks, vectors, strict=True):
+            point_id = make_point_id(
+                chunk["file"], str(chunk.get("chunk_index", 0)), chunk["content"]
+            )
             payload: dict[str, Any] = {
                 "type": chunk["type"],
                 "app": chunk["app"],
@@ -291,7 +294,7 @@ class VectorStore:
     def close(self) -> None:
         try:
             self.client.close()
-        except Exception:  # noqa: BLE001 - best-effort cleanup on shutdown
+        except Exception:
             logger.debug("Error while closing Qdrant client", exc_info=True)
 
 

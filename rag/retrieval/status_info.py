@@ -15,7 +15,7 @@ def index_status(config: Config) -> str:
         report = status_report(config)
     except QdrantLockError as exc:
         return f"Error: {exc}"
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return f"Error: failed to read index status: {exc}"
     return json.dumps(report, indent=2) + "\n"
 
@@ -25,6 +25,6 @@ def index_status_resource(config: Config) -> str:
         report = status_report(config)
     except QdrantLockError as exc:
         return resource_error(str(exc))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return resource_error(f"failed to read index status: {exc}")
     return resource_ok(report)

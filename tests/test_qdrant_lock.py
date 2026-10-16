@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from rag.config import Config, QdrantConfig
 from rag.store import QdrantLockError, VectorStore, lock_error_message
 
