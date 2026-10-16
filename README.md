@@ -85,8 +85,9 @@ Partial upsert via incremental inventory (hash registry, skip unchanged, safe de
 .venv/bin/python -m rag.cli --config config.yaml index --files docs/requirements/booking.md apps/web/services/BookingService.ts
 ```
 
-See [docs/incremental-indexing.md](docs/incremental-indexing.md) and
-[docs/search-scopes.md](docs/search-scopes.md). After large refactors or schema
+See [docs/incremental-indexing.md](docs/incremental-indexing.md),
+[docs/search-scopes.md](docs/search-scopes.md), and
+[docs/mcp-contracts.md](docs/mcp-contracts.md). After large refactors or schema
 changes, prefer a full `index`.
 
 5. Add an MCP server (use **absolute** paths; no spaces in paths):
