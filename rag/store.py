@@ -6,7 +6,7 @@ import logging
 import time
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 from qdrant_client import QdrantClient, models
 
@@ -16,9 +16,21 @@ logger = logging.getLogger(__name__)
 
 NAMESPACE = uuid.UUID("a4e2e5e0-6b8a-4f3d-9c1e-2d7f8a9b0c3e")
 
+SearchScope = Literal["workspace", "source", "related", "global"]
+VALID_SCOPES: frozenset[str] = frozenset({"workspace", "source", "related", "global"})
+DISABLED_SCOPES: frozenset[str] = frozenset({"related", "global"})
+
 
 class QdrantLockError(RuntimeError):
     """Local Qdrant storage is locked by another process."""
+
+
+class WorkspaceFilterError(ValueError):
+    """Raised when a storage operation lacks a required workspace_id."""
+
+
+class ScopeDisabledError(ValueError):
+    """Raised when a search scope is not yet enabled."""
 
 
 def make_point_id(*parts: str) -> str:
@@ -142,6 +154,12 @@ class VectorStore:
                     field_name=field_name,
                     field_schema=models.PayloadSchemaType.KEYWORD,
                 )
+            for field_name in ("workspace_id", "source_id", "language"):
+                self.client.create_payload_index(
+                    collection_name=self.collection,
+                    field_name=field_name,
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
 
     def upsert_chunks(
         self,
@@ -215,12 +233,52 @@ class VectorStore:
             )
         return len(points)
 
-    def delete_by_files(self, files: Sequence[str]) -> None:
-        """Delete all points whose payload.file is in files."""
+    def delete_by_files(
+        self,
+        files: Sequence[str],
+        *,
+        workspace_id: str | None = None,
+        allow_legacy: bool = False,
+    ) -> None:
+        """Delete all points whose payload.file is in files (workspace-scoped)."""
         if not files or not self.collection_exists():
             return
         unique = sorted({f.replace("\\", "/") for f in files if f})
         if not unique:
+            return
+        must = [
+            models.FieldCondition(
+                key="file",
+                match=models.MatchAny(any=unique),
+            )
+        ]
+        if workspace_id:
+            must.append(
+                models.FieldCondition(
+                    key="workspace_id",
+                    match=models.MatchValue(value=workspace_id),
+                )
+            )
+        elif not allow_legacy:
+            raise WorkspaceFilterError(
+                "workspace_id is required for delete_by_files "
+                "(pass allow_legacy=True only for single-default legacy mode)"
+            )
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.FilterSelector(filter=models.Filter(must=must)),
+            wait=True,
+        )
+
+    def delete_by_document(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        document_id: str,
+    ) -> None:
+        """Delete all points for one logical document."""
+        if not self.collection_exists():
             return
         self.client.delete(
             collection_name=self.collection,
@@ -228,12 +286,87 @@ class VectorStore:
                 filter=models.Filter(
                     must=[
                         models.FieldCondition(
-                            key="file",
-                            match=models.MatchAny(any=unique),
-                        )
+                            key="workspace_id",
+                            match=models.MatchValue(value=workspace_id),
+                        ),
+                        models.FieldCondition(
+                            key="source_id",
+                            match=models.MatchValue(value=source_id),
+                        ),
+                        models.FieldCondition(
+                            key="document_id",
+                            match=models.MatchValue(value=document_id),
+                        ),
                     ]
                 )
             ),
+            wait=True,
+        )
+
+    def scroll_document_points(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        document_id: str,
+        revision: int | None = None,
+        limit: int = 256,
+    ) -> list[models.Record]:
+        if not self.collection_exists():
+            return []
+        must: list[models.Condition] = [
+            models.FieldCondition(
+                key="workspace_id",
+                match=models.MatchValue(value=workspace_id),
+            ),
+            models.FieldCondition(
+                key="source_id",
+                match=models.MatchValue(value=source_id),
+            ),
+            models.FieldCondition(
+                key="document_id",
+                match=models.MatchValue(value=document_id),
+            ),
+        ]
+        if revision is not None:
+            must.append(
+                models.FieldCondition(
+                    key="revision",
+                    match=models.MatchValue(value=int(revision)),
+                )
+            )
+        records, _offset = self.client.scroll(
+            collection_name=self.collection,
+            scroll_filter=models.Filter(must=must),
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        return list(records)
+
+    def delete_document_points_except(
+        self,
+        *,
+        workspace_id: str,
+        source_id: str,
+        document_id: str,
+        keep_point_ids: set[str] | Sequence[str],
+    ) -> None:
+        """Retire document points whose IDs are not in keep_point_ids."""
+        if not self.collection_exists():
+            return
+        keep = {str(pid) for pid in keep_point_ids}
+        existing = self.scroll_document_points(
+            workspace_id=workspace_id,
+            source_id=source_id,
+            document_id=document_id,
+        )
+        retire_ids = [str(point.id) for point in existing if str(point.id) not in keep]
+        if not retire_ids:
+            return
+        self.client.delete(
+            collection_name=self.collection,
+            points_selector=models.PointIdsList(points=retire_ids),
             wait=True,
         )
 
@@ -249,6 +382,12 @@ class VectorStore:
         *,
         top_k: int,
         score_threshold: float | None,
+        workspace_id: str | None = None,
+        allow_legacy: bool = False,
+        scope: SearchScope | str = "workspace",
+        source_id: str | None = None,
+        document_id: str | None = None,
+        language: str | None = None,
         type_filter: list[str] | None = None,
         app_filter: str | None = None,
         requirement_id: str | None = None,
@@ -263,6 +402,12 @@ class VectorStore:
             )
 
         query_filter = build_type_app_filter(
+            workspace_id=workspace_id,
+            allow_legacy=allow_legacy,
+            scope=scope,
+            source_id=source_id,
+            document_id=document_id,
+            language=language,
             type_filter=type_filter,
             app_filter=app_filter,
             requirement_id=requirement_id,
@@ -285,6 +430,8 @@ class VectorStore:
         requirement_id: str,
         *,
         limit: int = 32,
+        workspace_id: str | None = None,
+        allow_legacy: bool = False,
         type_filter: list[str] | None = None,
         app_filter: str | None = None,
     ) -> list[models.Record]:
@@ -293,6 +440,8 @@ class VectorStore:
                 f"Collection '{self.collection}' does not exist. Run: python -m rag.cli index"
             )
         query_filter = build_type_app_filter(
+            workspace_id=workspace_id,
+            allow_legacy=allow_legacy,
             type_filter=type_filter,
             app_filter=app_filter,
             requirement_id=requirement_id,
@@ -313,8 +462,47 @@ class VectorStore:
             logger.debug("Error while closing Qdrant client", exc_info=True)
 
 
+def _workspace_condition(
+    *,
+    workspace_id: str | None,
+    allow_legacy: bool,
+) -> models.FieldCondition | None:
+    if workspace_id:
+        return models.FieldCondition(
+            key="workspace_id",
+            match=models.MatchValue(value=workspace_id),
+        )
+    if allow_legacy:
+        return None
+    raise WorkspaceFilterError(
+        "workspace_id is required for storage filters "
+        "(pass allow_legacy=True only for single-default legacy mode)"
+    )
+
+
+def resolve_search_scope(scope: SearchScope | str | None) -> str:
+    """Validate scope; related/global stay disabled until later phases."""
+    normalized = (scope or "workspace").strip().lower()
+    if normalized not in VALID_SCOPES:
+        raise ValueError(
+            f"unsupported search scope: {scope!r}; expected one of {sorted(VALID_SCOPES)}"
+        )
+    if normalized in DISABLED_SCOPES:
+        raise ScopeDisabledError(
+            f"search scope {normalized!r} is disabled until relationships "
+            "and authorization are implemented; use scope='workspace' or 'source'"
+        )
+    return normalized
+
+
 def build_type_app_filter(
     *,
+    workspace_id: str | None = None,
+    allow_legacy: bool = False,
+    scope: SearchScope | str = "workspace",
+    source_id: str | None = None,
+    document_id: str | None = None,
+    language: str | None = None,
     type_filter: list[str] | None = None,
     app_filter: str | None = None,
     requirement_id: str | None = None,
@@ -323,8 +511,51 @@ def build_type_app_filter(
     domain: str | None = None,
     status: str | None = None,
 ) -> models.Filter | None:
-    """Pure helper used by tests and callers that need the filter object."""
+    """
+    Build a Qdrant payload filter.
+
+    ``workspace_id`` is required unless ``allow_legacy=True`` (single default
+    workspace compatibility). Scopes ``related`` and ``global`` raise
+    ``ScopeDisabledError``.
+    """
+    resolved_scope = resolve_search_scope(scope)
     must: list[models.FieldCondition] = []
+
+    workspace_clause = _workspace_condition(workspace_id=workspace_id, allow_legacy=allow_legacy)
+    if workspace_clause is not None:
+        must.append(workspace_clause)
+
+    if resolved_scope == "source":
+        if not source_id:
+            raise ValueError("scope='source' requires source_id")
+        must.append(
+            models.FieldCondition(
+                key="source_id",
+                match=models.MatchValue(value=source_id),
+            )
+        )
+    elif source_id:
+        must.append(
+            models.FieldCondition(
+                key="source_id",
+                match=models.MatchValue(value=source_id),
+            )
+        )
+
+    if document_id:
+        must.append(
+            models.FieldCondition(
+                key="document_id",
+                match=models.MatchValue(value=document_id),
+            )
+        )
+    if language:
+        must.append(
+            models.FieldCondition(
+                key="language",
+                match=models.MatchValue(value=language),
+            )
+        )
     if type_filter:
         must.append(
             models.FieldCondition(
@@ -333,6 +564,7 @@ def build_type_app_filter(
             )
         )
     if app_filter:
+        # Deprecated compatibility filter (prefer source_id / path metadata).
         must.append(
             models.FieldCondition(
                 key="app",

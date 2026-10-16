@@ -282,66 +282,24 @@ def _config_with_collection(config: Config, collection: str) -> Config:
 
 
 def run_index_files(config: Config, rel_paths: Sequence[str]) -> dict[str, Any]:
-    """Upsert chunks for specific files without recreating the collection."""
-    embedder = EmbeddingClient(config.embedding)
-    ok, message = embedder.health_check()
-    if not ok:
-        raise RuntimeError(f"Embedding endpoint unhealthy: {message}")
+    """Upsert chunks for specific files using the incremental registry flow."""
+    from rag.indexer.incremental import run_incremental
 
     normalized = [p.replace("\\", "/").lstrip("./") for p in rel_paths if p and p.strip()]
     if not normalized:
         raise RuntimeError("No files provided for partial index")
 
-    chunks = build_chunks_for_files(config, normalized)
-    if not chunks:
-        raise RuntimeError("No chunks produced for the given files")
-
-    sample_vector = embedder.embed_texts([chunks[0]["content"]], for_query=False)[0]
-    vector_size = len(sample_vector)
-    files_touched = sorted({c["file"] for c in chunks})
-
-    from rag.indexer.index_manifest import (
-        check_compatibility,
-        current_manifest,
-        read_manifest,
+    stats = run_incremental(config, list(normalized))
+    status = _status_base(
+        config,
+        chunk_count=int(stats.get("points_count") or 0),
+        vector_size=int((read_status(config) or {}).get("vector_size") or 0),
     )
-
-    expected = current_manifest(
-        embedding_model=config.embedding.model,
-        vector_size=vector_size,
-        collection=config.qdrant.collection,
-    )
-    existing = read_manifest(config.status_file_path.with_name("index_manifest.json"))
-    check_compatibility(existing, expected, allow_missing=True)
-
-    store = VectorStore(config)
-    try:
-        store.ensure_collection(vector_size)
-        store.delete_by_files(files_touched)
-        vectors = embedder.embed_texts([c["content"] for c in chunks], for_query=False)
-        count = store.upsert_chunks(chunks, vectors)
-        points = store.count()
-    finally:
-        store.close()
-
-    prior = read_status(config) or {}
-    status = _status_base(config, chunk_count=points, vector_size=vector_size)
     status["index_mode"] = "partial"
-    status["last_indexed_files"] = files_touched
-    status["partial_upsert_count"] = count
-    # Preserve full-index vector_size hint if prior had one and counts differ oddly
-    if prior.get("vector_size") and prior.get("vector_size") != vector_size:
-        status["warning"] = (
-            f"Partial index vector_size={vector_size} differs from prior "
-            f"{prior.get('vector_size')}; run a full index if search fails."
-        )
+    status["last_indexed_files"] = normalized
+    status["incremental"] = stats
     _write_status(config.status_file_path, status)
-    logger.info(
-        "Partial index upserted %d chunks for %d files into '%s'",
-        count,
-        len(files_touched),
-        config.qdrant.collection,
-    )
+    logger.info("Incremental index stats: %s", stats)
     return status
 
 
