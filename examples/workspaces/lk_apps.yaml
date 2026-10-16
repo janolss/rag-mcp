@@ -1,11 +1,11 @@
 schema_version: 1
 
 id: lk_apps
-name: Lättkrängt Apps
+name: Example Apps
 
 description: >
-  SaaS-applikation för däckhotell, verkstad,
-  lagerhantering och administration.
+  Example SaaS application for workshop, inventory,
+  and administration workflows.
 
 technologies:
   - nodejs
@@ -29,9 +29,9 @@ roots:
       - "**/*.md"
 
 instructions:
-  - Läs relevant arkitekturdokumentation före större ändringar.
-  - Föredra befintliga kodmönster framför nya lösningar.
-  - Verifiera slutsatser mot källkod och tester.
+  - Read relevant architecture documentation before large changes.
+  - Prefer existing code patterns over inventing new ones.
+  - Verify conclusions against source code and tests.
 
 relationships:
   - target: shared-auth

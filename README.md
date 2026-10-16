@@ -169,7 +169,7 @@ mcp:
 With `qdrant.mode=local`, only one process may open the store — prefer
 `qdrant.mode=server` if Cursor stdio MCP and HTTP MCP run at the same time.
 
-### Felsök MCP
+### Troubleshoot MCP
 
 - Confirm the stdio process starts and waits (no traceback) with the absolute-path command above.
 - Host logs: Cursor MCP panel / server logs; Claude Desktop writes MCP stderr under `~/Library/Logs/Claude/` (`mcp.log`, `mcp-server-*.log` on macOS) or `~/.config/Claude/logs/` on Linux.
