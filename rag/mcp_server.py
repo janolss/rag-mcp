@@ -362,7 +362,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             document_types: Optional payload type filters (documentation|code|test|lis).
             limit: Max hits (1-50).
             scope: workspace (default) or source.
-            search_mode: semantic (keyword/hybrid arrive in a later phase).
+            search_mode: semantic | keyword | hybrid.
             path_prefix: Optional repo-relative path prefix filter.
         """
         if err := require_nonempty("query", query):

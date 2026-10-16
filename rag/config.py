@@ -181,6 +181,10 @@ class SearchConfig:
     # Hybrid re-rank: final = vector_weight * vector + lexical_weight * lexical
     vector_weight: float = 0.7
     lexical_weight: float = 0.3
+    # Reciprocal Rank Fusion constant for search_mode=hybrid
+    rrf_k: int = 60
+    # Default search mode for service-layer search: semantic|keyword|hybrid
+    default_mode: str = "semantic"
 
 
 @dataclass
