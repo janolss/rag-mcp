@@ -16,11 +16,12 @@ def change_plan_text(task: str, app: str = "") -> str:
 {app_line}
 
 Required tool sequence:
-1) index_status
-2) list_sources (if app scope unclear)
-3) get_context_pack(task{app_arg})
-4) impact_of_change(task{app_arg})
-5) trace_requirement for any requirement IDs found in the docs hits
+1) list_workspaces (if workspace_id is unclear)
+2) get_workspace_info / list_sources(workspace_id) (if app or source scope unclear)
+3) get_index_status (or index_status); warn if stale
+4) get_context_pack(task{app_arg})
+5) impact_of_change(task{app_arg})
+6) trace_requirement for any requirement IDs found in the docs hits
 
 Deliverable (markdown):
 - Goal and out-of-scope
@@ -43,11 +44,12 @@ Change summary / diff description:
 {app_line}
 
 Required tool sequence:
-1) index_status (warn if stale)
-2) impact_of_change(change_summary)
-3) trace_requirement for each requirement ID mentioned in the summary or docs hits
-4) find_gaps on the affected area
-5) search_code / search_knowledge for any unchecked claims
+1) list_workspaces (if workspace_id is unclear)
+2) get_index_status (or index_status); warn if stale
+3) impact_of_change(change_summary)
+4) trace_requirement for each requirement ID mentioned in the summary or docs hits
+5) find_gaps on the affected area
+6) search_code / search_knowledge for any unchecked claims (pass workspace_id)
 
 Deliverable (markdown checklist):
 - [ ] Requirements covered (ID → code path)
@@ -89,10 +91,11 @@ def onboarding_slice_text(topic: str, app: str = "") -> str:
 {app_line}
 
 Required tool sequence:
-1) list_sources
-2) get_context_pack(topic)
-3) search_knowledge for architecture/ADR context
-4) search_code for entry points and tests
+1) list_workspaces (if workspace_id is unclear)
+2) list_sources(workspace_id)
+3) get_context_pack(topic)
+4) search_knowledge for architecture/ADR context
+5) search_code for entry points and tests
 
 Deliverable (ordered reading list, max ~12 items):
 1. Docs (why/constraints)

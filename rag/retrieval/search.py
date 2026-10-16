@@ -143,21 +143,20 @@ def search_hits(
     fetch_k = limit * 3 if (path_prefix or config.search.lexical_weight > 0) else limit
     threshold = config.search.score_threshold if score_threshold is None else score_threshold
 
-    # Legacy MCP tools default to the synthetic default workspace. Multi-workspace
-    # configs must pass an explicit workspace_id (allow_legacy=False).
+    # Auto-resolve when exactly one workspace is registered (legacy ``default``
+    # or a single manifest workspace such as ``lk_apps``). Multi-workspace
+    # configs must pass an explicit workspace_id unless allow_legacy=True.
     resolved_workspace = workspace_id
     registry = WorkspaceRegistry.from_config(config)
     if resolved_workspace is None:
-        if len(registry) == 1 and registry.ids()[0] == "default":
-            resolved_workspace = "default"
+        ids = registry.ids()
+        if len(ids) == 1:
+            resolved_workspace = ids[0]
             legacy = True if allow_legacy is None else allow_legacy
+        elif allow_legacy:
+            legacy = True
         else:
-            if allow_legacy:
-                legacy = True
-            else:
-                raise ValueError(
-                    "workspace_id is required when more than one workspace is registered"
-                )
+            raise ValueError("workspace_id is required when more than one workspace is registered")
     else:
         legacy = bool(allow_legacy) if allow_legacy is not None else False
 
@@ -219,6 +218,7 @@ def search_knowledge(
     *,
     top_k: int | None = None,
     path_prefix: str | None = None,
+    workspace_id: str | None = None,
     store: VectorStore | None = None,
     embedder: EmbeddingClient | None = None,
 ) -> str:
@@ -228,6 +228,7 @@ def search_knowledge(
         type_filter=["documentation"],
         app_filter=None,
         path_prefix=path_prefix,
+        workspace_id=workspace_id,
         top_k=top_k,
         store=store,
         embedder=embedder,
@@ -241,6 +242,7 @@ def search_code(
     app: str | None = None,
     top_k: int | None = None,
     path_prefix: str | None = None,
+    workspace_id: str | None = None,
     store: VectorStore | None = None,
     embedder: EmbeddingClient | None = None,
 ) -> str:
@@ -258,6 +260,7 @@ def search_code(
         type_filter=["code", "test"],
         app_filter=app_filter,
         path_prefix=path_prefix,
+        workspace_id=workspace_id,
         top_k=top_k,
         store=store,
         embedder=embedder,
@@ -270,6 +273,7 @@ def search_lis(
     *,
     top_k: int | None = None,
     path_prefix: str | None = None,
+    workspace_id: str | None = None,
     doc_type: str | None = None,
     process_area: str | None = None,
     domain: str | None = None,
@@ -283,6 +287,7 @@ def search_lis(
         type_filter=["lis"],
         app_filter=None,
         path_prefix=path_prefix,
+        workspace_id=workspace_id,
         doc_type=_optional_str(doc_type),
         process_area=_optional_str(process_area),
         domain=_optional_str(domain),
@@ -310,6 +315,7 @@ def _search(
     top_k: int | None,
     store: VectorStore | None,
     embedder: EmbeddingClient | None,
+    workspace_id: str | None = None,
     doc_type: str | None = None,
     process_area: str | None = None,
     domain: str | None = None,
@@ -326,6 +332,7 @@ def _search(
             type_filter=type_filter,
             app_filter=app_filter,
             path_prefix=path_prefix,
+            workspace_id=workspace_id,
             doc_type=doc_type,
             process_area=process_area,
             domain=domain,

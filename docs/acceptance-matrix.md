@@ -27,5 +27,6 @@
 
 1. Keep single-workspace `config.yaml` (synthetic `default`).
 2. Run full `index` to build payload schema v1 + index manifest.
-3. Optionally add `workspace.yaml` manifests and reindex.
+3. Optionally add `workspace.yaml` manifests and reindex with
+   `python -m rag.cli index` (or `--workspace-id` for one workspace).
 4. Enable HTTP auth before non-loopback binds.

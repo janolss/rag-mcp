@@ -89,3 +89,27 @@ def test_search_unaffected_marker(tmp_path: Path):
     job = coordinator.run(JobRequest())
     assert seen["running"] is True
     assert job.status == "succeeded"
+
+
+def test_succeeded_job_requeues_for_intentional_reindex(tmp_path: Path):
+    """A later identical request must run again after success (not return the old result)."""
+    store = StatusStore(tmp_path / "jobs.sqlite3")
+    calls = {"n": 0}
+
+    def runner(_req: JobRequest) -> dict:
+        calls["n"] += 1
+        return {"run": calls["n"]}
+
+    coordinator = JobCoordinator(store, lease_seconds=30, runner=runner)
+    request = JobRequest(workspace_id="default", source_id="*", mode="full")
+
+    first = coordinator.run(request)
+    assert first.status == "succeeded"
+    assert first.result() == {"run": 1}
+    assert calls["n"] == 1
+
+    second = coordinator.run(request)
+    assert second.status == "succeeded"
+    assert second.job_id == first.job_id  # same idempotency row, requeued
+    assert second.result() == {"run": 2}
+    assert calls["n"] == 2

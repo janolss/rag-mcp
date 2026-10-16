@@ -33,7 +33,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Partial upsert for repo-relative or absolute paths (does not recreate collection)",
     )
-    sub.add_parser("status", help="Show index/collection status")
+    index_parser.add_argument(
+        "--workspace-id",
+        default=None,
+        help="Workspace to index (required for --files when multiple workspaces exist; "
+        "omit to index all workspaces on a full rebuild)",
+    )
+    status_parser = sub.add_parser("status", help="Show index/collection status")
+    status_parser.add_argument(
+        "--workspace-id",
+        default=None,
+        help="Optional workspace id included in the status report",
+    )
 
     search = sub.add_parser("search", help="Debug search against the index")
     search.add_argument("query", help="Search query")
@@ -42,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["knowledge", "code", "lis"],
         default="knowledge",
         help="Which tool surface to emulate",
+    )
+    search.add_argument(
+        "--workspace-id",
+        default=None,
+        help="Workspace filter (inferred when exactly one workspace is registered)",
     )
     search.add_argument(
         "--app",
@@ -76,12 +92,17 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "index":
         try:
-            status = run_index_job(config, files=args.files, wait=True)
+            status = run_index_job(
+                config,
+                files=args.files,
+                workspace_id=args.workspace_id,
+                wait=True,
+            )
         except QdrantLockError as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
             return 1
-        except RuntimeError as exc:
+        except (RuntimeError, ValueError, KeyError) as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
             return 1
@@ -91,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         try:
             report = status_report(config)
+            if args.workspace_id:
+                report["workspace_id"] = args.workspace_id
         except QdrantLockError as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
@@ -100,26 +123,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "search":
         try:
+            search_kwargs: dict = {
+                "top_k": args.top_k,
+                "path_prefix": args.path_prefix,
+                "workspace_id": args.workspace_id,
+            }
             if args.mode == "knowledge":
-                print(
-                    search_knowledge(
-                        config,
-                        args.query,
-                        top_k=args.top_k,
-                        path_prefix=args.path_prefix,
-                    )
-                )
+                print(search_knowledge(config, args.query, **search_kwargs))
             elif args.mode == "lis":
                 print(
                     search_lis(
                         config,
                         args.query,
-                        top_k=args.top_k,
-                        path_prefix=args.path_prefix,
                         doc_type=args.doc_type,
                         process_area=args.process_area,
                         domain=args.domain,
                         status=args.status,
+                        **search_kwargs,
                     )
                 )
             else:
@@ -128,11 +148,14 @@ def main(argv: list[str] | None = None) -> int:
                         config,
                         args.query,
                         app=args.app,
-                        top_k=args.top_k,
-                        path_prefix=args.path_prefix,
+                        **search_kwargs,
                     )
                 )
         except QdrantLockError as exc:
+            logging.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            return 1
+        except (ValueError, RuntimeError) as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
             return 1

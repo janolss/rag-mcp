@@ -62,7 +62,13 @@ class JobCoordinator:
         return cls(StatusStore(path), lease_seconds=lease_seconds, runner=runner)
 
     def submit(self, request: JobRequest) -> JobRecord:
-        """Enqueue or join an existing active job with the same idempotency key."""
+        """
+        Enqueue or join an existing *active* job with the same idempotency key.
+
+        Only ``queued`` / ``running`` jobs are shared (concurrent dedupe). A prior
+        ``succeeded`` / ``failed`` / ``cancelled`` row is requeued so intentional
+        reindex runs again under the same key.
+        """
         key = request.idempotency_key or default_idempotency_key(request)
         normalized = JobRequest(
             workspace_id=request.workspace_id,
@@ -79,14 +85,12 @@ class JobCoordinator:
                 idempotency_key=key,
             )
             if existing is not None:
-                if existing.status == "succeeded":
-                    return existing
                 if existing.status in {"queued", "running"} and (
                     existing.lease_expires_at is None or existing.lease_expires_at > time.time()
                 ):
                     return existing
-                # Requeue failed/expired rows under the same idempotency key.
-                if existing.status in {"failed", "cancelled"} or (
+                # Terminal or expired: requeue under the same idempotency key.
+                if existing.status in {"succeeded", "failed", "cancelled"} or (
                     existing.lease_expires_at is not None
                     and existing.lease_expires_at <= time.time()
                 ):
@@ -95,6 +99,7 @@ class JobCoordinator:
                         status="queued",
                         lease_expires_at=time.time() + self.lease_seconds,
                         error="",
+                        clear_result=True,
                     )
                     assert requeued is not None
                     return requeued
@@ -114,21 +119,36 @@ class JobCoordinator:
             try:
                 return self.store.insert(record)
             except Exception:
-                # Unique idempotency race: return the winner.
+                # Unique idempotency race: join an in-flight winner, or requeue
+                # a terminal row the same way as the lookup path above.
                 winner = self.store.get_by_idempotency(
                     workspace_id=normalized.workspace_id,
                     source_id=normalized.source_id,
                     idempotency_key=key,
                 )
-                if winner is not None:
+                if winner is None:
+                    raise
+                if winner.status in {"queued", "running"} and (
+                    winner.lease_expires_at is None or winner.lease_expires_at > time.time()
+                ):
                     return winner
+                if winner.status in {"succeeded", "failed", "cancelled"} or (
+                    winner.lease_expires_at is not None and winner.lease_expires_at <= time.time()
+                ):
+                    requeued = self.store.update(
+                        winner.job_id,
+                        status="queued",
+                        lease_expires_at=time.time() + self.lease_seconds,
+                        error="",
+                        clear_result=True,
+                    )
+                    assert requeued is not None
+                    return requeued
                 raise
 
     def run(self, request: JobRequest) -> JobRecord:
         """Submit and execute synchronously (CLI wait mode)."""
         job = self.submit(request)
-        if job.status == "succeeded":
-            return job
         if job.status == "running":
             return self.wait(job.job_id)
 
@@ -213,12 +233,28 @@ def run_index_job(
     config: Config,
     *,
     files: Sequence[str] | None = None,
-    workspace_id: str = "default",
+    workspace_id: str | None = None,
     wait: bool = True,
 ) -> dict[str, Any]:
     """CLI/server entry: coordinate then optionally wait for completion."""
+    from rag.workspaces import WorkspaceRegistry
+
+    registry = WorkspaceRegistry.from_config(config)
+    resolved_workspace = workspace_id
+    if resolved_workspace is None:
+        ids = registry.ids()
+        resolved_workspace = ids[0] if len(ids) == 1 else "*"
+    elif resolved_workspace != "*":
+        registry.get(resolved_workspace)
+
+    if files and resolved_workspace == "*":
+        raise RuntimeError(
+            "workspace_id is required for partial index when multiple workspaces "
+            "are registered (pass --workspace-id)"
+        )
+
     request = JobRequest(
-        workspace_id=workspace_id,
+        workspace_id=resolved_workspace,
         source_id="*",
         mode="partial" if files else "full",
         files=tuple(files or ()),
@@ -227,9 +263,10 @@ def run_index_job(
     def runner(req: JobRequest) -> dict[str, Any]:
         from rag.indexer.run import run_index, run_index_files
 
+        scoped = None if req.workspace_id == "*" else req.workspace_id
         if req.files:
-            return run_index_files(config, list(req.files))
-        return run_index(config)
+            return run_index_files(config, list(req.files), workspace_id=scoped)
+        return run_index(config, workspace_id=scoped)
 
     coordinator = JobCoordinator.from_config(config, runner=runner)
     if not wait:

@@ -138,6 +138,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             query: str,
             top_k: int | None = None,
             path_prefix: str | None = None,
+            workspace_id: str | None = None,
         ) -> CallToolResult:
             """
             Search workspace documentation (README, docs, and configured knowledge sources).
@@ -149,6 +150,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 query: Natural-language or keyword query.
                 top_k: Optional result count override.
                 path_prefix: Optional repo-relative path prefix filter (e.g. docs/requirements/).
+                workspace_id: Optional workspace id. Inferred when exactly one workspace is registered.
             """
             if err := require_nonempty("query", query):
                 return tool_error(err)
@@ -159,6 +161,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 query=query,
                 top_k=top_k,
                 path_prefix=path_prefix,
+                workspace_id=workspace_id,
             )
 
     if caps.code:
@@ -169,6 +172,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             app: str | None = None,
             top_k: int | None = None,
             path_prefix: str | None = None,
+            workspace_id: str | None = None,
         ) -> CallToolResult:
             """
             Search application source and tests under configured code globs.
@@ -178,6 +182,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 app: Optional app filter matching a configured index.apps name. Omit to search all.
                 top_k: Optional result count override.
                 path_prefix: Optional repo-relative path prefix filter (e.g. apps/web/).
+                workspace_id: Optional workspace id. Inferred when exactly one workspace is registered.
             """
             if err := require_nonempty("query", query):
                 return tool_error(err)
@@ -189,6 +194,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 app=app,
                 top_k=top_k,
                 path_prefix=path_prefix,
+                workspace_id=workspace_id,
             )
 
     if caps.lis:
@@ -198,6 +204,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             query: str,
             top_k: int | None = None,
             path_prefix: str | None = None,
+            workspace_id: str | None = None,
             doc_type: str | None = None,
             process_area: str | None = None,
             domain: str | None = None,
@@ -213,6 +220,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 query: Natural-language or keyword query.
                 top_k: Optional result count override.
                 path_prefix: Optional path prefix filter.
+                workspace_id: Optional workspace id. Inferred when exactly one workspace is registered.
                 doc_type: Optional filter (policy|riktlinje|anvisning|instruktion|mall|...).
                 process_area: Optional filter (ledning|behov|planera|utveckla|leverera|stod).
                 domain: Optional domain filter (infosec|kvalitet|mtp|...).
@@ -233,6 +241,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 query=query,
                 top_k=top_k,
                 path_prefix=path_prefix,
+                workspace_id=workspace_id,
                 doc_type=doc_type,
                 process_area=process_area,
                 domain=domain,

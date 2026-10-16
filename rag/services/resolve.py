@@ -21,8 +21,9 @@ def resolve_workspace_id(
     """
     Resolve a caller workspace_id.
 
-    Single synthetic ``default`` workspace may be inferred when omitted.
-    Multi-workspace configs require an explicit id when ``required`` is True.
+    When exactly one workspace is registered (legacy ``default`` or a single
+    manifest workspace), its id is inferred when omitted. Multi-workspace
+    configs require an explicit id when ``required`` is True.
     """
     registry = registry_for(config)
     if workspace_id:

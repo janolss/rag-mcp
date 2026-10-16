@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 from rag.indexer.jobs import JobCoordinator, JobRequest
@@ -17,6 +18,10 @@ def test_concurrent_identical_index_requests(tmp_path: Path):
     def runner(_req: JobRequest) -> dict:
         with lock:
             runs["n"] += 1
+        # Hold the lease long enough for sibling threads to join the
+        # in-flight job (concurrent dedupe). Intentional reindex after
+        # success is covered separately in test_index_jobs.
+        time.sleep(0.1)
         return {"points": 1}
 
     coordinator = JobCoordinator(store, runner=runner)
