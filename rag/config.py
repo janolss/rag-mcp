@@ -181,6 +181,8 @@ class Config:
     index: IndexConfig = field(default_factory=IndexConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
+    # Optional list of workspace.yaml paths. Empty => legacy single default workspace.
+    workspace_manifests: list[str] = field(default_factory=list)
     log_level: str = "INFO"
 
     @property
@@ -505,12 +507,18 @@ def load_config(path: str | Path | None = None) -> Config:
         with config_path.open(encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
 
+    manifests_raw = data.get("workspace_manifests") or []
+    if not isinstance(manifests_raw, list):
+        raise ValueError("workspace_manifests must be a list of paths")
+    workspace_manifests = [str(item).strip() for item in manifests_raw if str(item).strip()]
+
     config = Config(
         embedding=_merge_dataclass(EmbeddingConfig, data.get("embedding")),
         qdrant=_merge_dataclass(QdrantConfig, data.get("qdrant")),
         index=_merge_index_config(data.get("index")),
         search=_merge_dataclass(SearchConfig, data.get("search")),
         mcp=_merge_mcp_config(data.get("mcp")),
+        workspace_manifests=workspace_manifests,
         log_level=str(data.get("log_level", "INFO")),
     )
     return _overlay_env(config)

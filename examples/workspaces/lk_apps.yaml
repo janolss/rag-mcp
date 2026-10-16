@@ -1,0 +1,43 @@
+schema_version: 1
+
+id: lk_apps
+name: Lättkrängt Apps
+
+description: >
+  SaaS-applikation för däckhotell, verkstad,
+  lagerhantering och administration.
+
+technologies:
+  - nodejs
+  - typescript
+  - express
+  - mysql
+  - redis
+
+roots:
+  - id: backend
+    path: /projects/lk_apps
+    type: source_code
+    include:
+      - apps/**/*.ts
+      - apps/**/*.js
+      - src/**/*.ts
+  - id: architecture
+    path: /projects/lk_apps/.devdoc
+    type: architecture_docs
+    include:
+      - "**/*.md"
+
+instructions:
+  - Läs relevant arkitekturdokumentation före större ändringar.
+  - Föredra befintliga kodmönster framför nya lösningar.
+  - Verifiera slutsatser mot källkod och tester.
+
+relationships:
+  - target: shared-auth
+    type: depends_on
+
+tags:
+  - backend
+  - saas
+  - multi-tenant

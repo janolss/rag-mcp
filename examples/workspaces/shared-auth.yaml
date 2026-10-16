@@ -1,0 +1,26 @@
+schema_version: 1
+
+id: shared-auth
+name: Shared Auth
+
+description: Shared authentication and authorization library.
+
+technologies:
+  - typescript
+  - nodejs
+
+roots:
+  - id: lib
+    path: /projects/shared-auth
+    type: source_code
+    include:
+      - src/**/*.ts
+  - id: docs
+    path: /projects/shared-auth/docs
+    type: technical_docs
+    include:
+      - "**/*.md"
+
+tags:
+  - library
+  - auth
