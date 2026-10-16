@@ -21,7 +21,10 @@ def test_validate_top_k():
 
 
 def test_validate_lis_filters():
-    assert validate_lis_filters(doc_type="anvisning", process_area="utveckla", status="approved") is None
+    assert (
+        validate_lis_filters(doc_type="anvisning", process_area="utveckla", status="approved")
+        is None
+    )
     assert validate_lis_filters(doc_type="nope") is not None
     assert validate_lis_filters(process_area="unknown") is not None
     assert validate_lis_filters(status="pending") is not None

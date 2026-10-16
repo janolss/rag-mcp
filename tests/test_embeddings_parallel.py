@@ -7,7 +7,6 @@ import time
 
 import httpx
 import pytest
-
 from rag.config import EmbeddingConfig
 from rag.embeddings import EmbeddingClient
 

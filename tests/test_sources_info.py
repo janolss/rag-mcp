@@ -1,13 +1,13 @@
 """Unit tests for list_sources formatting."""
 
 from rag.config import (
+    DEFAULT_MCP_INSTRUCTIONS,
     AppRule,
     CapabilitiesConfig,
     Config,
     IndexConfig,
     McpConfig,
     QdrantConfig,
-    DEFAULT_MCP_INSTRUCTIONS,
 )
 from rag.retrieval.sources_info import list_sources, list_sources_payload
 

@@ -3,7 +3,6 @@
 from types import SimpleNamespace
 
 import pytest
-
 from rag.config import (
     Config,
     McpConfig,
@@ -45,9 +44,7 @@ def test_streamable_http_run_kwargs_and_url():
 
 
 def test_sse_run_kwargs_and_url():
-    config = Config(
-        mcp=McpConfig(transport="sse", host="0.0.0.0", port=9000, path="/events")
-    )
+    config = Config(mcp=McpConfig(transport="sse", host="0.0.0.0", port=9000, path="/events"))
     kwargs = mcp_run_kwargs(config)
     assert kwargs["transport"] == "sse"
     assert kwargs["sse_path"] == "/events"

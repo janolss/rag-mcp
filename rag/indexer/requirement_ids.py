@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from functools import lru_cache
-from typing import Sequence
-
 
 DEFAULT_REQUIREMENT_ID_PATTERNS: tuple[str, ...] = (
     r"REQ-\d+",

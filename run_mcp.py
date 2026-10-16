@@ -12,7 +12,7 @@ os.chdir(ROOT)
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from rag.mcp_server import main
+from rag.mcp_server import main  # noqa: E402
 
 if __name__ == "__main__":
     main()
