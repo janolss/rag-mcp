@@ -5,11 +5,25 @@ from __future__ import annotations
 import json
 
 from rag.config import Config
+from rag.indexer.source_model import resolve_workspace_sources, source_specs_from_sources
 from rag.mcp_results import resource_ok
+from rag.workspaces import WorkspaceRegistry
 
 
 def list_sources_payload(config: Config) -> dict:
     caps = config.mcp.capabilities
+    registry = WorkspaceRegistry.from_config(config)
+    workspaces = []
+    for workspace in registry.list():
+        _, sources = resolve_workspace_sources(config, workspace_id=workspace.id)
+        workspaces.append(
+            {
+                "workspace_id": workspace.id,
+                "name": workspace.name,
+                "legacy": workspace.legacy,
+                "sources": source_specs_from_sources(sources),
+            }
+        )
     return {
         "repo_root": str(config.repo_root_path),
         "sources": config.index.sources,
@@ -28,6 +42,7 @@ def list_sources_payload(config: Config) -> dict:
         "ignore_dirs": list(config.index.ignore_dirs),
         "apps": [{"prefix": a.prefix, "name": a.name} for a in config.index.apps],
         "requirement_id_patterns": list(config.index.requirement_id_patterns),
+        "workspaces": workspaces,
     }
 
 

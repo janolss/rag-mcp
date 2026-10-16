@@ -11,7 +11,8 @@ import sys
 from dotenv import load_dotenv
 
 from rag.config import PACKAGE_ROOT, load_config
-from rag.indexer.run import run_index, run_index_files, status_report
+from rag.indexer.jobs import run_index_job
+from rag.indexer.run import status_report
 from rag.retrieval.search import search_code, search_knowledge, search_lis
 from rag.store import QdrantLockError
 
@@ -75,10 +76,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "index":
         try:
-            if args.files:
-                status = run_index_files(config, args.files)
-            else:
-                status = run_index(config)
+            status = run_index_job(config, files=args.files, wait=True)
         except QdrantLockError as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)

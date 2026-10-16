@@ -13,6 +13,7 @@ from rag.config import Config
 from rag.embeddings import EmbeddingClient
 from rag.indexer.chunk_code import chunk_code
 from rag.indexer.chunk_markdown import chunk_markdown
+from rag.indexer.collections import CollectionRouter
 from rag.indexer.frontmatter import lis_fields_from_frontmatter, split_frontmatter
 from rag.indexer.git_info import git_head_sha
 from rag.indexer.line_ranges import attach_line_numbers
@@ -56,6 +57,7 @@ def _chunk_file(
             body,
             chunk_size=config.index.chunk_size,
             chunk_overlap=config.index.chunk_overlap,
+            language=meta.get("language"),
         )
 
     patterns = config.index.requirement_id_patterns
@@ -73,7 +75,13 @@ def _chunk_file(
             "chunk_index": index,
             "content": content,
             "requirement_ids": extract_requirement_ids(id_source, patterns),
+            # Default legacy workspace/source; multi-workspace callers override.
+            "workspace_id": "default",
+            "source_id": bucket or meta["type"] or "default",
         }
+        for key in ("symbol", "symbol_kind", "chunk_key", "imports"):
+            if key in piece:
+                chunk[key] = piece[key]
         chunk.update(lis_fields)
         chunks.append(chunk)
     # Line numbers relative to the text that was chunked (body without frontmatter for LIS)
@@ -81,10 +89,31 @@ def _chunk_file(
     return chunks
 
 
+def _registered_extra_roots(config: Config) -> list[Path]:
+    """Absolute LIS (and future external) roots that are explicitly configured."""
+    roots: list[Path] = []
+    for pattern in config.index.lis:
+        path = Path(pattern)
+        if not path.is_absolute():
+            continue
+        # For globs like /mirror/docs/**/*.md, register the stable parent prefix.
+        parts = path.parts
+        if "**" in parts:
+            roots.append(Path(*parts[: parts.index("**")]))
+        else:
+            roots.append(path.parent if path.suffix else path)
+    return roots
+
+
 def build_chunks(config: Config) -> list[dict[str, Any]]:
     repo_root = config.repo_root_path
     specs = selected_sources_for_config(config)
-    files = walk_files(repo_root, specs, config.index.ignore_dirs)
+    files = walk_files(
+        repo_root,
+        specs,
+        config.index.ignore_dirs,
+        extra_roots=_registered_extra_roots(config),
+    )
     chunks: list[dict[str, Any]] = []
 
     for path, bucket in files:
@@ -106,17 +135,20 @@ def build_chunks_for_files(config: Config, rel_paths: Sequence[str]) -> list[dic
         if not raw_norm:
             continue
         path = Path(raw_norm)
-        if path.is_absolute():
-            path = path.resolve()
-            identity = file_identity(path, repo_root)
-        else:
-            rel = raw_norm.lstrip("./")
-            path = (repo_root / rel).resolve()
-            try:
-                path.relative_to(repo_root.resolve())
-            except ValueError as exc:
-                raise RuntimeError(f"Path escapes repo_root: {raw}") from exc
-            identity = rel
+        from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
+
+        policy = PathSecurityPolicy()
+        roots = [repo_root.resolve(), *[r.resolve() for r in _registered_extra_roots(config)]]
+        try:
+            if path.is_absolute():
+                path = assert_within_roots(path, roots, policy=policy)
+                identity = file_identity(path, repo_root)
+            else:
+                rel = raw_norm.lstrip("./")
+                path = assert_within_roots(repo_root / rel, roots, policy=policy)
+                identity = rel
+        except SecurePathError as exc:
+            raise RuntimeError(str(exc)) from exc
 
         if identity in seen:
             continue
@@ -196,76 +228,82 @@ def run_index(config: Config) -> dict[str, Any]:
     sample_vector = embedder.embed_texts([chunks[0]["content"]], for_query=False)[0]
     vector_size = len(sample_vector)
 
-    store = VectorStore(config)
+    router = CollectionRouter(config)
+    staging = router.staging_collection()
+    previous_active = router.active_collection()
+    staging_config = _config_with_collection(config, staging)
+
+    store = VectorStore(staging_config)
     try:
         store.recreate_collection(vector_size)
-
         texts = [c["content"] for c in chunks]
         logger.info(
-            "Embedding %d chunks (concurrency=%d)",
+            "Embedding %d chunks into staging '%s' (concurrency=%d)",
             len(texts),
+            staging,
             max(1, int(config.embedding.concurrency or 1)),
         )
         vectors = embedder.embed_texts(texts, for_query=False)
-
         count = store.upsert_chunks(chunks, vectors)
-    finally:
+        if count <= 0:
+            raise RuntimeError("staging index produced zero points; active index unchanged")
+    except Exception:
         store.close()
+        logger.exception(
+            "Full index failed before activation; active collection remains %s",
+            previous_active,
+        )
+        raise
+    else:
+        store.close()
+        router.activate(staging, vector_size=vector_size)
 
     status = _status_base(config, chunk_count=count, vector_size=vector_size)
     status["index_mode"] = "full"
+    status["active_collection"] = router.active_collection()
+    status["previous_collection"] = previous_active
+    from rag.indexer.index_manifest import current_manifest, write_manifest
+
+    manifest = current_manifest(
+        embedding_model=config.embedding.model,
+        vector_size=vector_size,
+        collection=router.active_collection(),
+    )
+    write_manifest(config.status_file_path.with_name("index_manifest.json"), manifest)
+    status["index_manifest"] = manifest.to_dict()
     _write_status(config.status_file_path, status)
-    logger.info("Indexed %d chunks into '%s'", count, config.qdrant.collection)
+    logger.info("Indexed %d chunks into '%s'", count, router.active_collection())
     return status
 
 
+def _config_with_collection(config: Config, collection: str) -> Config:
+    """Shallow-copy config pointing VectorStore at another collection name."""
+    from copy import deepcopy
+
+    cloned = deepcopy(config)
+    cloned.qdrant.collection = collection
+    return cloned
+
+
 def run_index_files(config: Config, rel_paths: Sequence[str]) -> dict[str, Any]:
-    """Upsert chunks for specific files without recreating the collection."""
-    embedder = EmbeddingClient(config.embedding)
-    ok, message = embedder.health_check()
-    if not ok:
-        raise RuntimeError(f"Embedding endpoint unhealthy: {message}")
+    """Upsert chunks for specific files using the incremental registry flow."""
+    from rag.indexer.incremental import run_incremental
 
     normalized = [p.replace("\\", "/").lstrip("./") for p in rel_paths if p and p.strip()]
     if not normalized:
         raise RuntimeError("No files provided for partial index")
 
-    chunks = build_chunks_for_files(config, normalized)
-    if not chunks:
-        raise RuntimeError("No chunks produced for the given files")
-
-    sample_vector = embedder.embed_texts([chunks[0]["content"]], for_query=False)[0]
-    vector_size = len(sample_vector)
-    files_touched = sorted({c["file"] for c in chunks})
-
-    store = VectorStore(config)
-    try:
-        store.ensure_collection(vector_size)
-        store.delete_by_files(files_touched)
-        vectors = embedder.embed_texts([c["content"] for c in chunks], for_query=False)
-        count = store.upsert_chunks(chunks, vectors)
-        points = store.count()
-    finally:
-        store.close()
-
-    prior = read_status(config) or {}
-    status = _status_base(config, chunk_count=points, vector_size=vector_size)
-    status["index_mode"] = "partial"
-    status["last_indexed_files"] = files_touched
-    status["partial_upsert_count"] = count
-    # Preserve full-index vector_size hint if prior had one and counts differ oddly
-    if prior.get("vector_size") and prior.get("vector_size") != vector_size:
-        status["warning"] = (
-            f"Partial index vector_size={vector_size} differs from prior "
-            f"{prior.get('vector_size')}; run a full index if search fails."
-        )
-    _write_status(config.status_file_path, status)
-    logger.info(
-        "Partial index upserted %d chunks for %d files into '%s'",
-        count,
-        len(files_touched),
-        config.qdrant.collection,
+    stats = run_incremental(config, list(normalized))
+    status = _status_base(
+        config,
+        chunk_count=int(stats.get("points_count") or 0),
+        vector_size=int((read_status(config) or {}).get("vector_size") or 0),
     )
+    status["index_mode"] = "partial"
+    status["last_indexed_files"] = normalized
+    status["incremental"] = stats
+    _write_status(config.status_file_path, status)
+    logger.info("Incremental index stats: %s", stats)
     return status
 
 

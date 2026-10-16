@@ -117,6 +117,8 @@ def _hits_for_id(
     records = store.scroll_by_requirement_id(
         requirement_id,
         limit=max(top_k * 2, 16),
+        workspace_id="default",
+        allow_legacy=True,
         type_filter=type_filter,
         app_filter=app_filter,
     )

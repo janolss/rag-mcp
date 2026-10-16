@@ -128,6 +128,14 @@ class CapabilitiesConfig:
 
 
 @dataclass
+class McpAuthConfig:
+    """Bearer-token auth profile for non-loopback HTTP binds."""
+
+    tokens: list[dict] = field(default_factory=list)
+    require_auth_for_public_bind: bool = True
+
+
+@dataclass
 class McpConfig:
     name: str = "workspace-rag"
     instructions: str = DEFAULT_MCP_INSTRUCTIONS
@@ -142,6 +150,7 @@ class McpConfig:
     message_path: str = "/messages/"
     # Prefer True for URL clients that struggle with session headers
     stateless_http: bool = True
+    auth: McpAuthConfig = field(default_factory=McpAuthConfig)
 
 
 @dataclass
@@ -172,6 +181,10 @@ class SearchConfig:
     # Hybrid re-rank: final = vector_weight * vector + lexical_weight * lexical
     vector_weight: float = 0.7
     lexical_weight: float = 0.3
+    # Reciprocal Rank Fusion constant for search_mode=hybrid
+    rrf_k: int = 60
+    # Default search mode for service-layer search: semantic|keyword|hybrid
+    default_mode: str = "semantic"
 
 
 @dataclass
@@ -181,6 +194,8 @@ class Config:
     index: IndexConfig = field(default_factory=IndexConfig)
     search: SearchConfig = field(default_factory=SearchConfig)
     mcp: McpConfig = field(default_factory=McpConfig)
+    # Optional list of workspace.yaml paths. Empty => legacy single default workspace.
+    workspace_manifests: list[str] = field(default_factory=list)
     log_level: str = "INFO"
 
     @property
@@ -418,6 +433,14 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
     path = str(data.get("path", defaults.path) or "")
     message_path = str(data.get("message_path", defaults.message_path) or defaults.message_path)
     stateless_http = _as_bool(data.get("stateless_http"), defaults.stateless_http)
+    auth_data = data.get("auth") if isinstance(data.get("auth"), dict) else {}
+    auth = McpAuthConfig(
+        tokens=list(auth_data.get("tokens") or []),
+        require_auth_for_public_bind=_as_bool(
+            auth_data.get("require_auth_for_public_bind"),
+            True,
+        ),
+    )
     return McpConfig(
         name=name,
         instructions=instructions,
@@ -428,6 +451,7 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
         path=path,
         message_path=message_path,
         stateless_http=stateless_http,
+        auth=auth,
     )
 
 
@@ -505,12 +529,18 @@ def load_config(path: str | Path | None = None) -> Config:
         with config_path.open(encoding="utf-8") as fh:
             data = yaml.safe_load(fh) or {}
 
+    manifests_raw = data.get("workspace_manifests") or []
+    if not isinstance(manifests_raw, list):
+        raise ValueError("workspace_manifests must be a list of paths")
+    workspace_manifests = [str(item).strip() for item in manifests_raw if str(item).strip()]
+
     config = Config(
         embedding=_merge_dataclass(EmbeddingConfig, data.get("embedding")),
         qdrant=_merge_dataclass(QdrantConfig, data.get("qdrant")),
         index=_merge_index_config(data.get("index")),
         search=_merge_dataclass(SearchConfig, data.get("search")),
         mcp=_merge_mcp_config(data.get("mcp")),
+        workspace_manifests=workspace_manifests,
         log_level=str(data.get("log_level", "INFO")),
     )
     return _overlay_env(config)

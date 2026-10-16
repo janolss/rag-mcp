@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "symbol",
+      "query": "Greeter.hello",
+      "expect_mode": "keyword"
+    },
+    {
+      "id": "filename",
+      "query": "booking.md",
+      "expect_mode": "keyword"
+    },
+    {
+      "id": "requirement",
+      "query": "REQ-123",
+      "expect_mode": "hybrid"
+    },
+    {
+      "id": "natural_language",
+      "query": "how does authentication work",
+      "expect_mode": "semantic"
+    }
+  ]
+}
