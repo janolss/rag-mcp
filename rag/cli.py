@@ -44,6 +44,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Which tool surface to emulate",
     )
     search.add_argument(
+        "--workspace-id",
+        default=None,
+        help="Workspace filter (inferred when exactly one workspace is registered)",
+    )
+    search.add_argument(
         "--app",
         default=None,
         help="Optional app filter (must match a configured index.apps name)",
@@ -100,26 +105,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "search":
         try:
+            search_kwargs = {
+                "top_k": args.top_k,
+                "path_prefix": args.path_prefix,
+                "workspace_id": args.workspace_id,
+            }
             if args.mode == "knowledge":
-                print(
-                    search_knowledge(
-                        config,
-                        args.query,
-                        top_k=args.top_k,
-                        path_prefix=args.path_prefix,
-                    )
-                )
+                print(search_knowledge(config, args.query, **search_kwargs))
             elif args.mode == "lis":
                 print(
                     search_lis(
                         config,
                         args.query,
-                        top_k=args.top_k,
-                        path_prefix=args.path_prefix,
                         doc_type=args.doc_type,
                         process_area=args.process_area,
                         domain=args.domain,
                         status=args.status,
+                        **search_kwargs,
                     )
                 )
             else:
@@ -128,11 +130,14 @@ def main(argv: list[str] | None = None) -> int:
                         config,
                         args.query,
                         app=args.app,
-                        top_k=args.top_k,
-                        path_prefix=args.path_prefix,
+                        **search_kwargs,
                     )
                 )
         except QdrantLockError as exc:
+            logging.error("%s", exc)
+            print(str(exc), file=sys.stderr)
+            return 1
+        except ValueError as exc:
             logging.error("%s", exc)
             print(str(exc), file=sys.stderr)
             return 1

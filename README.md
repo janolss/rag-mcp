@@ -279,9 +279,9 @@ Tools are registered only when the matching capability is on
 |------|---------|
 | `index_status` | Freshness, model, `git_sha`, stale hints |
 | `list_sources` | Capabilities, apps, globs (incl. LIS), patterns |
-| `search_knowledge` | Workspace docs (`type=documentation`); optional `path_prefix` |
-| `search_code` | Code/tests; optional `app`, `path_prefix` |
-| `search_lis` | LIS / ledningssystem; optional `doc_type`, `process_area`, `domain`, `status` |
+| `search_knowledge` | Workspace docs (`type=documentation`); optional `path_prefix`, `workspace_id` |
+| `search_code` | Code/tests; optional `app`, `path_prefix`, `workspace_id` |
+| `search_lis` | LIS / ledningssystem; optional `doc_type`, `process_area`, `domain`, `status`, `workspace_id` |
 | `get_context_pack` | Structured pack from enabled sources (docs / code / LIS) |
 | `trace_requirement` | Requirement ID/text → docs + code/tests |
 | `impact_of_change` | Likely code, docs, tests, risks for a change |

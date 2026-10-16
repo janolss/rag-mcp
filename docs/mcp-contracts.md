@@ -16,16 +16,22 @@ Workspace-aware tools sit on a shared application service layer
 
 ## Legacy wrappers
 
-`search_knowledge`, `search_code`, `search_lis`, `index_status`, analysis tools,
-and prompts are unchanged for clients. Prefer the new tools for multi-workspace.
+`search_knowledge`, `search_code`, and `search_lis` accept optional `workspace_id`
+and use the same auto-resolve rules as `search`. Prefer the new tools for
+structured multi-workspace clients; keep the convenience tools for capability-
+gated single-bucket searches.
 
 ## Workspace resolution
 
-- Exactly one workspace (typically synthetic `default`): `workspace_id` may be omitted.
+- Exactly one workspace (synthetic `default` **or** a single manifest id such as
+  `lk_apps`): `workspace_id` may be omitted and is inferred.
 - Multiple workspaces: callers must pass `workspace_id` or tools return an error.
 
 ## Client migration
 
 1. Call `list_workspaces` / `get_workspace_info` to discover ids.
-2. Pass `workspace_id` into `search`, `get_document`, and `get_index_status`.
-3. Keep using capability-gated legacy search tools until clients are updated.
+2. Pass `workspace_id` into `search`, `search_knowledge` / `search_code` /
+   `search_lis`, `get_document`, and `get_index_status` when more than one
+   workspace is registered.
+3. With a single manifest workspace, legacy search tools work without an
+   explicit id (same as `search`).
