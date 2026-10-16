@@ -353,12 +353,35 @@ Runtime decision: this project stays on Python (see
 
 ## Packaging this repo
 
+Local zip (no version suffix):
+
 ```bash
 bash scripts/package.sh
 # → dist/rag-mcp.zip
 ```
 
+With a version name (used by the release Action):
+
+```bash
+VERSION=v0.1.0 bash scripts/package.sh
+# → dist/rag-mcp-v0.1.0.zip
+```
+
 The zip excludes `.venv/`, `qdrant_data/`, `config.yaml`, `index_status.json`, and caches.
+Unpack so the folder is named `rag-mcp/` (as in Quick start).
+
+### GitHub Release
+
+Push a SemVer tag to build and publish the zip automatically:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The [Release](.github/workflows/release.yml) workflow runs verify, then
+`scripts/package.sh`, and attaches `rag-mcp-vX.Y.Z.zip` plus a `.sha256`
+checksum to the GitHub Release for that tag.
 
 ## Layout
 

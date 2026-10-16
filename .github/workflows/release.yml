@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt
+          python -m pip install '.[dev]'
+
+      - name: Ruff check
+        run: python -m ruff check .
+
+      - name: Ruff format
+        run: python -m ruff format --check .
+
+      - name: Pytest
+        run: python -m pytest tests/ -q
+
+      - name: Build zip
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: bash scripts/package.sh
+
+      - name: Checksum
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          sha256sum "dist/rag-mcp-${VERSION}.zip" > "dist/rag-mcp-${VERSION}.zip.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/rag-mcp-${{ github.ref_name }}.zip
+            dist/rag-mcp-${{ github.ref_name }}.zip.sha256
