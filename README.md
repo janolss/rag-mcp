@@ -272,20 +272,31 @@ Chunks are stored as `type=lis` and kept separate from workspace `documentation`
 
 ### Tools
 
-Tools are registered only when the matching capability is on
-(`index_status` / `list_sources` always).
+Always registered (workspace / service layer):
 
 | Tool | Purpose |
 |------|---------|
-| `index_status` | Freshness, model, `git_sha`, stale hints |
-| `list_sources` | Capabilities, apps, globs (incl. LIS), patterns |
-| `search_knowledge` | Workspace docs (`type=documentation`); optional `path_prefix`, `workspace_id` |
-| `search_code` | Code/tests; optional `app`, `path_prefix`, `workspace_id` |
-| `search_lis` | LIS / ledningssystem; optional `doc_type`, `process_area`, `domain`, `status`, `workspace_id` |
-| `get_context_pack` | Structured pack from enabled sources (docs / code / LIS) |
-| `trace_requirement` | Requirement ID/text → docs + code/tests |
-| `impact_of_change` | Likely code, docs, tests, risks for a change |
-| `find_gaps` | Heuristic docs↔code coverage gaps |
+| `list_workspaces` | List registered workspaces (`query`, `tags`) |
+| `get_workspace_info` | Workspace metadata, sources, relationships |
+| `list_sources` | With `workspace_id`: that workspace's sources; without: legacy config summary (capabilities, apps, globs, patterns) |
+| `get_index_status` | Structured status (optional `workspace_id` / `source_id`); prefer over legacy `index_status` |
+| `index_status` | Legacy freshness wrapper (model, `git_sha`, stale hints) |
+| `search` | Workspace-scoped search (`semantic` / `keyword` / `hybrid`; optional `source_ids`, `document_types`, `path_prefix`) |
+| `get_document` | Read a registered document (optional line range) |
+
+Capability-gated (`mcp.capabilities`):
+
+| Tool | When | Purpose |
+|------|------|---------|
+| `search_knowledge` | `knowledge` | Workspace docs (`type=documentation`); optional `path_prefix`, `workspace_id` |
+| `search_code` | `code` | Code/tests; optional `app`, `path_prefix`, `workspace_id` |
+| `search_lis` | `lis` | LIS / ledningssystem; optional `path_prefix`, `doc_type`, `process_area`, `domain`, `status`, `workspace_id` |
+| `get_context_pack` | any of knowledge/code/lis | Structured pack from enabled sources (docs / code / LIS) |
+| `trace_requirement` | knowledge or code | Requirement ID/text → docs + code/tests |
+| `impact_of_change` | knowledge or code | Likely code, docs, tests, risks for a change |
+| `find_gaps` | knowledge or code | Heuristic docs↔code coverage gaps |
+
+See [docs/mcp-contracts.md](docs/mcp-contracts.md) for workspace resolution and migration notes.
 
 ### Resources
 
