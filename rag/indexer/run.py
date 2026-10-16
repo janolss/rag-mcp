@@ -81,10 +81,31 @@ def _chunk_file(
     return chunks
 
 
+def _registered_extra_roots(config: Config) -> list[Path]:
+    """Absolute LIS (and future external) roots that are explicitly configured."""
+    roots: list[Path] = []
+    for pattern in config.index.lis:
+        path = Path(pattern)
+        if not path.is_absolute():
+            continue
+        # For globs like /mirror/docs/**/*.md, register the stable parent prefix.
+        parts = path.parts
+        if "**" in parts:
+            roots.append(Path(*parts[: parts.index("**")]))
+        else:
+            roots.append(path.parent if path.suffix else path)
+    return roots
+
+
 def build_chunks(config: Config) -> list[dict[str, Any]]:
     repo_root = config.repo_root_path
     specs = selected_sources_for_config(config)
-    files = walk_files(repo_root, specs, config.index.ignore_dirs)
+    files = walk_files(
+        repo_root,
+        specs,
+        config.index.ignore_dirs,
+        extra_roots=_registered_extra_roots(config),
+    )
     chunks: list[dict[str, Any]] = []
 
     for path, bucket in files:
@@ -106,17 +127,20 @@ def build_chunks_for_files(config: Config, rel_paths: Sequence[str]) -> list[dic
         if not raw_norm:
             continue
         path = Path(raw_norm)
-        if path.is_absolute():
-            path = path.resolve()
-            identity = file_identity(path, repo_root)
-        else:
-            rel = raw_norm.lstrip("./")
-            path = (repo_root / rel).resolve()
-            try:
-                path.relative_to(repo_root.resolve())
-            except ValueError as exc:
-                raise RuntimeError(f"Path escapes repo_root: {raw}") from exc
-            identity = rel
+        from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
+
+        policy = PathSecurityPolicy()
+        roots = [repo_root.resolve(), *[r.resolve() for r in _registered_extra_roots(config)]]
+        try:
+            if path.is_absolute():
+                path = assert_within_roots(path, roots, policy=policy)
+                identity = file_identity(path, repo_root)
+            else:
+                rel = raw_norm.lstrip("./")
+                path = assert_within_roots(repo_root / rel, roots, policy=policy)
+                identity = rel
+        except SecurePathError as exc:
+            raise RuntimeError(str(exc)) from exc
 
         if identity in seen:
             continue
