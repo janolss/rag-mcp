@@ -46,7 +46,7 @@ def test_rejects_unsupported_schema_and_unknown_fields():
                 "roots": [{"id": "a", "path": "/tmp/a", "type": "source_code"}],
             }
         )
-    with pytest.raises(ManifestValidationError, match="Extra inputs|extra"):
+    with pytest.raises(ManifestValidationError, match=r"Extra inputs|extra"):
         parse_manifest_dict(
             {
                 "schema_version": 1,
