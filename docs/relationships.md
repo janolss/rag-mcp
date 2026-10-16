@@ -1,4 +1,4 @@
-# Workspace relationships (Phase 11)
+# Workspace relationships
 
 Allowed types: `depends_on`, `references`, `implements`, `documents`, `tests`,
 `shares_contract_with`.

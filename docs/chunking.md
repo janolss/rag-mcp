@@ -1,4 +1,4 @@
-# Code and document chunking (Phase 8)
+# Code and document chunking
 
 Markdown keeps `chunk_markdown`. Code uses language adapters under
 `rag/indexer/languages/` with a size-window fallback.

@@ -20,7 +20,7 @@ def resolve_workspace_sources(
     """
     Resolve sources for a workspace.
 
-    Until Phase 15 path security lands, callers must treat newly declared
+    Until path security lands, callers must treat newly declared
     manifest roots as registration-only and continue indexing through the
     legacy glob adapter for the synthetic default workspace.
     """

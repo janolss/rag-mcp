@@ -1,4 +1,4 @@
-"""Structural code chunking tests (Phase 8)."""
+"""Structural code chunking tests."""
 
 from __future__ import annotations
 

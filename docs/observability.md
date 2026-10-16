@@ -1,4 +1,4 @@
-# Observability (Phase 17)
+# Observability
 
 ## Lifecycle status
 

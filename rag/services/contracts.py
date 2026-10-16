@@ -1,7 +1,7 @@
 """Thin service protocols shared by MCP and HTTP adapters.
 
-These contracts define the future application service boundaries. Phase 1
-introduces the protocols only; concrete implementations arrive in later phases.
+These contracts define the application service boundaries. This module
+introduces the protocols only; concrete implementations live elsewhere.
 """
 
 from __future__ import annotations

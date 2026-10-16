@@ -1,4 +1,4 @@
-# MCP contracts (Phase 12)
+# MCP contracts
 
 Workspace-aware tools sit on a shared application service layer
 (`rag.services.ServiceApp`). Legacy tools remain as wrappers during migration.

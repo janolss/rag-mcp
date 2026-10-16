@@ -1,4 +1,4 @@
-# Atomic full indexing (Phase 6)
+# Atomic full indexing
 
 Full rebuilds write to a staging collection first:
 

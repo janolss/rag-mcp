@@ -1,6 +1,6 @@
 # Workspace manifest
 
-Phase 3 introduces versioned `workspace.yaml` files.
+Versioned `workspace.yaml` files describe registered workspaces.
 
 ## Schema
 

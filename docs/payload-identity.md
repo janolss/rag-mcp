@@ -1,4 +1,4 @@
-# Payload identity (Phase 5)
+# Payload identity
 
 ## Rules
 

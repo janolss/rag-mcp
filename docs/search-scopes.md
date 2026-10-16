@@ -1,4 +1,4 @@
-# Search filters and scopes (Phase 10+)
+# Search filters and scopes
 
 Storage-layer search and delete helpers require a workspace boundary.
 

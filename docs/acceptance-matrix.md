@@ -1,4 +1,4 @@
-# Multi-workspace acceptance matrix (Phase 20)
+# Multi-workspace acceptance matrix
 
 | # | Requirement | Code | Tests | Status |
 |---|-------------|------|-------|--------|

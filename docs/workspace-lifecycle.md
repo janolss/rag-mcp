@@ -1,16 +1,16 @@
-# Workspace lifecycle (Phase 2)
+# Workspace lifecycle
 
 ## Overview
 
-A workspace is a stable logical project registered in the server. Phase 2
-introduces the in-memory `WorkspaceRegistry` and a legacy adapter that maps the
-existing single-repo `config.yaml` to a synthetic workspace with ID `default`.
+A workspace is a stable logical project registered in the server. The
+in-memory `WorkspaceRegistry` and a legacy adapter map the existing
+single-repo `config.yaml` to a synthetic workspace with ID `default`.
 
 ## ID rules
 
 - `workspace.id` must be non-empty and unique within the registry.
 - IDs are stable keys used by later search, index and MCP contracts.
-- Until manifests land (Phase 3), only the synthetic `default` workspace exists
+- Until manifests land, only the synthetic `default` workspace exists
   for legacy configurations.
 
 ## Legacy compatibility

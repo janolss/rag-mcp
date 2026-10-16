@@ -1,4 +1,4 @@
-# Semantic, keyword, and hybrid search (Phase 9)
+# Semantic, keyword, and hybrid search
 
 | Mode | Retriever | Notes |
 |------|-----------|-------|

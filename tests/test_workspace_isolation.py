@@ -1,4 +1,4 @@
-"""Workspace isolation and search scope tests (Phase 10)."""
+"""Workspace isolation and search scope tests."""
 
 from __future__ import annotations
 

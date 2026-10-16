@@ -1,4 +1,4 @@
-# Index versioning (Phase 18)
+# Index versioning
 
 After a successful full index the server writes `index_manifest.json` next to
 `index_status.json` with:

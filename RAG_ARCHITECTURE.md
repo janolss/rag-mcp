@@ -10,8 +10,9 @@ Starlette/Uvicorn, Qdrant, Pydantic, Ruff). See
 [docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md).
 
 Application adapters (MCP/HTTP) will share service protocols defined in
-`rag/services/contracts.py`. Concrete multi-workspace services land in later
-phases; this package currently remains a single-workspace RAG MCP server.
+`rag/services/contracts.py`. Concrete multi-workspace services land as those
+implementations are added; this package currently remains a single-workspace
+RAG MCP server.
 
 ## Goal
 

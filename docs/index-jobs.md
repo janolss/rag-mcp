@@ -1,4 +1,4 @@
-# Index jobs (Phase 14)
+# Index jobs
 
 Long-running index work goes through `JobCoordinator` so concurrent identical
 requests share one execution while search keeps reading the active generation.
@@ -23,7 +23,7 @@ so the process blocks until the coordinated job finishes.
 ## Guarantees
 
 - Two identical concurrent jobs produce **one** index run.
-- Staging rebuilds still activate only after verification (Phase 6); search stays
+- Staging rebuilds still activate only after verification; search stays
   on the previous active collection during the job.
 - Lease expiry unlocks the scope for a retry.
 

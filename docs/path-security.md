@@ -1,4 +1,4 @@
-# Path security (Phase 15)
+# Path security
 
 ## Defaults
 

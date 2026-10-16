@@ -4,7 +4,7 @@
 # Unpack layout: place this package as <workspace>/rag-mcp/ so repo_root ".."
 # points at the workspace you want to index.
 #
-# Optional multi-workspace manifests (Phase 3+). When empty/omitted, the server
+# Optional multi-workspace manifests. When empty/omitted, the server
 # exposes a synthetic workspace id=default derived from index.* below.
 # workspace_manifests:
 #   - ./examples/workspaces/lk_apps.yaml

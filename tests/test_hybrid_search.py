@@ -1,4 +1,4 @@
-"""Keyword and hybrid RRF search tests (Phase 9)."""
+"""Keyword and hybrid RRF search tests."""
 
 from __future__ import annotations
 

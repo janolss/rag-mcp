@@ -1,4 +1,4 @@
-"""Adapter contract suite (Phase 19)."""
+"""Adapter contract suite."""
 
 from __future__ import annotations
 

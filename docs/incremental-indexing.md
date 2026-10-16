@@ -1,4 +1,4 @@
-# Incremental indexing (Phase 7)
+# Incremental indexing
 
 Partial updates use a SQLite document registry plus hash inventory so reruns are
 idempotent and failed writes do not retire the previous generation of chunks.

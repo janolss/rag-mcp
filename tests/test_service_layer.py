@@ -1,4 +1,4 @@
-"""Application service layer tests (Phase 12)."""
+"""Application service layer tests."""
 
 from __future__ import annotations
 

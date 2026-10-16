@@ -1,4 +1,4 @@
-# HTTP API `/api/v1` (Phase 13)
+# HTTP API `/api/v1`
 
 REST endpoints share `rag.services.ServiceApp` with MCP tools so domain results
 match for the same inputs. MCP transports (`/mcp`, `/sse`, `/messages/`) are

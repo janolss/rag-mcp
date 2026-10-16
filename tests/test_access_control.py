@@ -1,4 +1,4 @@
-"""Network access and workspace authorization tests (Phase 16)."""
+"""Network access and workspace authorization tests."""
 
 from __future__ import annotations
 

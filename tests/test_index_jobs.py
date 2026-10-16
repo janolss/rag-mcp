@@ -1,4 +1,4 @@
-"""Index job coordinator tests (Phase 14)."""
+"""Index job coordinator tests."""
 
 from __future__ import annotations
 

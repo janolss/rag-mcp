@@ -1,4 +1,4 @@
-# Document adapters (Phase 19)
+# Document adapters
 
 | Adapter | Name | Dependency |
 |---------|------|------------|

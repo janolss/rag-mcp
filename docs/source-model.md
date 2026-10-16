@@ -1,4 +1,4 @@
-# Source model (Phase 4)
+# Source model
 
 ## Contract
 
@@ -19,7 +19,6 @@ When no manifests are configured, enabled `index.knowledge` / `index.code` /
 
 ## Safety note
 
-Manifest roots are registered in Phase 4, but indexing still uses the legacy
-glob walker for the synthetic default workspace until Phase 15 path security is
-in place. Newly declared roots must not be activated for ingestion before that
-gate.
+Manifest roots are registered, but indexing still uses the legacy glob walker
+for the synthetic default workspace until path security is in place. Newly
+declared roots must not be activated for ingestion before that gate.
