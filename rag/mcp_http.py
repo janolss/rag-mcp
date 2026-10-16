@@ -65,15 +65,25 @@ def _root_info_route(config: Config):
                 "name": config.mcp.name,
                 "transport": normalize_mcp_transport(config.mcp.transport),
                 "endpoints": urls,
+                "api": "/api/v1",
                 "hint": (
                     "Modern MCP URL clients should use endpoints['streamable-http'] "
                     "(POST). Legacy SSE clients use GET endpoints['sse'] and POST to "
-                    "endpoints['sse_messages']. Root POST is not an MCP endpoint."
+                    "endpoints['sse_messages']. REST clients use /api/v1. "
+                    "Root POST is not an MCP endpoint."
                 ),
             }
         )
 
     return Route("/", endpoint=root, methods=["GET", "POST"])
+
+
+def _attach_http_routes(app: Any, config: Config) -> None:
+    """Mount REST /api/v1 alongside MCP transports; keep MCP paths intact."""
+    from rag.http_api import mount_api_routes
+
+    mount_api_routes(app, config)
+    app.routes.insert(0, _root_info_route(config))
 
 
 async def run_http_async(mcp: MCPServer, config: Config) -> None:
@@ -90,7 +100,7 @@ async def run_http_async(mcp: MCPServer, config: Config) -> None:
             streamable_http_path=path,
             stateless_http=bool(config.mcp.stateless_http),
         )
-        app.routes.insert(0, _root_info_route(config))
+        _attach_http_routes(app, config)
         await _serve_uvicorn(app, host=host, port=port, log_level=log_level)
         return
 
@@ -101,7 +111,7 @@ async def run_http_async(mcp: MCPServer, config: Config) -> None:
             sse_path=path,
             message_path=_message_path(config),
         )
-        app.routes.insert(0, _root_info_route(config))
+        _attach_http_routes(app, config)
         await _serve_uvicorn(app, host=host, port=port, log_level=log_level)
         return
 
@@ -119,10 +129,10 @@ async def run_http_async(mcp: MCPServer, config: Config) -> None:
         sse_path="/sse",
         message_path=_message_path(config),
     )
-    stream_app.routes.insert(0, _root_info_route(config))
+    _attach_http_routes(stream_app, config)
     stream_app.routes.extend(sse_app.routes)
     logger.info(
-        "Dual HTTP MCP: streamable-http=/mcp sse=/sse messages=%s",
+        "Dual HTTP MCP: streamable-http=/mcp sse=/sse messages=%s api=/api/v1",
         _message_path(config),
     )
     await _serve_uvicorn(stream_app, host=host, port=port, log_level=log_level)
