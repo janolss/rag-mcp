@@ -8,6 +8,7 @@ from typing import Any
 from rag.config import Config
 from rag.embeddings import EmbeddingClient
 from rag.store import QdrantLockError, VectorStore
+from rag.workspaces.registry import WorkspaceRegistry
 
 _TOKEN_RE = re.compile(r"[a-z0-9_./-]+", re.IGNORECASE)
 
@@ -121,6 +122,13 @@ def search_hits(
     process_area: str | None = None,
     domain: str | None = None,
     status: str | None = None,
+    workspace_id: str | None = None,
+    source_id: str | None = None,
+    document_id: str | None = None,
+    language: str | None = None,
+    scope: str = "workspace",
+    allow_legacy: bool | None = None,
+    related_workspace_ids: list[str] | None = None,
     top_k: int | None = None,
     score_threshold: float | None = None,
     store: VectorStore | None = None,
@@ -135,6 +143,39 @@ def search_hits(
     fetch_k = limit * 3 if (path_prefix or config.search.lexical_weight > 0) else limit
     threshold = config.search.score_threshold if score_threshold is None else score_threshold
 
+    # Legacy MCP tools default to the synthetic default workspace. Multi-workspace
+    # configs must pass an explicit workspace_id (allow_legacy=False).
+    resolved_workspace = workspace_id
+    registry = WorkspaceRegistry.from_config(config)
+    if resolved_workspace is None:
+        if len(registry) == 1 and registry.ids()[0] == "default":
+            resolved_workspace = "default"
+            legacy = True if allow_legacy is None else allow_legacy
+        else:
+            if allow_legacy:
+                legacy = True
+            else:
+                raise ValueError(
+                    "workspace_id is required when more than one workspace is registered"
+                )
+    else:
+        legacy = bool(allow_legacy) if allow_legacy is not None else False
+
+    expanded_related = related_workspace_ids
+    if (scope or "workspace").strip().lower() == "related" and expanded_related is None:
+        from rag.relationships.registry import RelationshipRegistry
+        from rag.security.http_auth import require_principal
+
+        principal = require_principal()
+        assert resolved_workspace is not None
+        rel_registry = RelationshipRegistry.from_workspace_registry(registry)
+        expanded_related = rel_registry.related_workspace_ids(
+            resolved_workspace,
+            principal=principal,
+            include_self=True,
+            max_depth=1,
+        )
+
     owns_store = store is None
     try:
         store = store or VectorStore(config)
@@ -144,6 +185,12 @@ def search_hits(
             vector,
             top_k=fetch_k,
             score_threshold=threshold,
+            workspace_id=resolved_workspace,
+            allow_legacy=legacy,
+            scope=scope,
+            source_id=source_id,
+            document_id=document_id,
+            language=language,
             type_filter=type_filter,
             app_filter=app_filter,
             requirement_id=requirement_id,
@@ -151,6 +198,7 @@ def search_hits(
             process_area=process_area,
             domain=domain,
             status=status,
+            related_workspace_ids=expanded_related,
         )
         hits = apply_path_prefix(hits, path_prefix)
         return rerank_hits(

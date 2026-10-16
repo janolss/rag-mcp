@@ -1,0 +1,37 @@
+schema_version: 1
+
+id: lk_apps
+name: Example Apps
+
+description: >
+  Example SaaS application workspace used by manifest tests.
+
+technologies:
+  - python
+  - qdrant
+
+roots:
+  - id: backend
+    path: /projects/lk_apps
+    type: source_code
+    include:
+      - src/**/*.py
+    exclude:
+      - node_modules
+  - id: architecture
+    path: /projects/lk_apps/.devdoc
+    type: architecture_docs
+    include:
+      - "**/*.md"
+
+instructions:
+  - Read architecture docs before large changes.
+  - Prefer existing patterns.
+
+relationships:
+  - target: shared-auth
+    type: depends_on
+
+tags:
+  - backend
+  - saas

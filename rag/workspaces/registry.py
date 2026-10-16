@@ -27,7 +27,11 @@ class WorkspaceRegistry:
 
     @classmethod
     def from_config(cls, config: Config) -> WorkspaceRegistry:
-        """Create a registry containing the legacy default workspace."""
+        """Create a registry from manifests, or the legacy default workspace."""
+        if config.workspace_manifests:
+            from rag.workspaces.manifest import load_manifests
+
+            return cls(load_manifests(config.workspace_manifests))
         return cls([workspace_from_config(config)])
 
     def register(self, workspace: Workspace) -> None:

@@ -1,4 +1,4 @@
-"""Simple size-based code chunking (no AST in MVP)."""
+"""Code chunking: language adapters with size-based fallback."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 from rag.indexer.split import enforce_max_len, hard_split_text
 
 
-def chunk_code(
+def chunk_code_size(
     text: str,
     *,
     chunk_size: int = 1200,
@@ -19,7 +19,7 @@ def chunk_code(
         return []
 
     if len(content) <= chunk_size:
-        return [{"content": content, "section": None}]
+        return [{"content": content, "section": None, "chunk_key": "size:0"}]
 
     paragraphs = [p for p in content.split("\n\n") if p.strip()]
     if not paragraphs:
@@ -29,7 +29,6 @@ def chunk_code(
     current = ""
 
     for para in paragraphs:
-        # Oversized single paragraph/block must be hard-split immediately
         if len(para) > chunk_size:
             if current.strip():
                 chunks.append({"content": current.strip(), "section": None})
@@ -53,4 +52,25 @@ def chunk_code(
     if current.strip():
         chunks.append({"content": current.strip(), "section": None})
 
-    return enforce_max_len(chunks, chunk_size=chunk_size, overlap=chunk_overlap)
+    result = enforce_max_len(chunks, chunk_size=chunk_size, overlap=chunk_overlap)
+    for index, chunk in enumerate(result):
+        chunk.setdefault("chunk_key", f"size:{index}")
+    return result
+
+
+def chunk_code(
+    text: str,
+    *,
+    chunk_size: int = 1200,
+    chunk_overlap: int = 150,
+    language: str | None = None,
+) -> list[dict[str, Any]]:
+    """Public entry: structural language chunking when possible, else size windows."""
+    from rag.indexer.languages import chunk_source
+
+    return chunk_source(
+        text,
+        language=language,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+    )

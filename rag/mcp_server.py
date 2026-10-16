@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import signal
@@ -41,6 +42,12 @@ from rag.retrieval.status_info import index_status as _index_status
 from rag.retrieval.status_info import index_status_resource as _index_status_resource
 from rag.retrieval.trace import trace_requirement as _trace_requirement
 from rag.runtime import RagRuntime
+from rag.services import (
+    NotFoundError,
+    ServiceApp,
+    ServiceError,
+    ValidationError,
+)
 from rag.store import QdrantLockError
 from rag.version import package_version
 
@@ -70,6 +77,13 @@ def create_mcp_server(config: Config, runtime: RagRuntime | None = None) -> MCPS
 
 def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     caps = config.mcp.capabilities
+    services = ServiceApp(config)
+
+    def _service_error(exc: Exception) -> CallToolResult:
+        if isinstance(exc, (ValidationError, NotFoundError, ServiceError)):
+            return tool_error(str(exc))
+        logger.exception("RAG service call failed")
+        return tool_error(str(exc))
 
     async def _with_runtime(search_fn: Callable[..., str], **kwargs: Any) -> CallToolResult:
         try:
@@ -95,6 +109,27 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             logger.exception("RAG tool call failed")
             return tool_error(str(exc))
         return as_tool_result(text)
+
+    async def _with_search_service(method: Callable[..., Any], **kwargs: Any) -> CallToolResult:
+        try:
+            store = runtime.get_store()
+            embedder = runtime.get_embedder()
+        except QdrantLockError as exc:
+            return tool_error(str(exc))
+        except Exception as exc:
+            logger.exception("Failed to initialize RAG runtime")
+            return tool_error(f"failed to initialize RAG runtime: {exc}")
+
+        app = services.with_runtime(store=store, embedder=embedder)
+
+        def _call() -> Any:
+            return method(app, **kwargs)
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
 
     if caps.knowledge:
 
@@ -205,22 +240,184 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             )
 
     @mcp.tool()
+    async def list_workspaces(
+        query: str | None = None,
+        tags: list[str] | None = None,
+    ) -> CallToolResult:
+        """
+        List registered workspaces (id, name, tags, source counts).
+
+        Args:
+            query: Optional name/id substring filter.
+            tags: Optional tag allowlist (workspace must include all).
+        """
+
+        def _call() -> list[dict[str, Any]]:
+            return services.workspaces.list_workspaces(query=query, tags=tags)
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
+
+    @mcp.tool()
+    async def get_workspace_info(workspace_id: str) -> CallToolResult:
+        """
+        Return detailed metadata for one workspace, including sources and relationships.
+
+        Args:
+            workspace_id: Stable workspace id (use list_workspaces to discover).
+        """
+        if err := require_nonempty("workspace_id", workspace_id):
+            return tool_error(err)
+
+        def _call() -> dict[str, Any]:
+            return services.workspaces.get_workspace(workspace_id)
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
+
+    @mcp.tool()
+    async def get_index_status(
+        workspace_id: str | None = None,
+        source_id: str | None = None,
+    ) -> CallToolResult:
+        """
+        Structured index status for an optional workspace/source scope.
+
+        Prefer this over the legacy index_status tool for multi-workspace setups.
+
+        Args:
+            workspace_id: Optional workspace id (inferred when only default exists).
+            source_id: Optional source id annotation.
+        """
+
+        def _call() -> dict[str, Any]:
+            return services.status.get_index_status(
+                workspace_id=workspace_id,
+                source_id=source_id,
+            )
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
+
+    @mcp.tool()
     async def index_status() -> CallToolResult:
         """
         Show index freshness: points count, model, git_sha, stale hints.
 
+        Legacy wrapper; prefer get_index_status for workspace-scoped clients.
         Call before non-trivial change or review work.
         """
         text = await anyio.to_thread.run_sync(_index_status, config)
         return as_tool_result(text)
 
     @mcp.tool()
-    async def list_sources() -> CallToolResult:
+    async def list_sources(workspace_id: str | None = None) -> CallToolResult:
         """
-        List configured capabilities, repo_root, apps, knowledge/code/lis globs, and requirement ID patterns.
+        List sources for a workspace, or legacy config summary when workspace_id is omitted.
+
+        Args:
+            workspace_id: Optional workspace id. When set, returns that workspace's sources only.
         """
+        if workspace_id:
+
+            def _call_ws() -> list[dict[str, Any]]:
+                return services.sources.list_sources(workspace_id)
+
+            try:
+                payload = await anyio.to_thread.run_sync(_call_ws)
+            except Exception as exc:
+                return _service_error(exc)
+            return as_tool_result(json.dumps(payload, indent=2) + "\n")
+
         text = await anyio.to_thread.run_sync(_list_sources, config)
         return as_tool_result(text)
+
+    @mcp.tool()
+    async def search(
+        query: str,
+        workspace_id: str | None = None,
+        source_ids: list[str] | None = None,
+        document_types: list[str] | None = None,
+        limit: int | None = None,
+        scope: str = "workspace",
+        search_mode: str = "semantic",
+        path_prefix: str | None = None,
+    ) -> CallToolResult:
+        """
+        Workspace-scoped search via the application service layer.
+
+        Args:
+            query: Natural-language or keyword query.
+            workspace_id: Required when multiple workspaces are registered.
+            source_ids: Optional single-source allowlist.
+            document_types: Optional payload type filters (documentation|code|test|lis).
+            limit: Max hits (1-50).
+            scope: workspace (default) or source.
+            search_mode: semantic | keyword | hybrid.
+            path_prefix: Optional repo-relative path prefix filter.
+        """
+        if err := require_nonempty("query", query):
+            return tool_error(err)
+        if err := validate_top_k(limit):
+            return tool_error(err)
+        return await _with_search_service(
+            lambda app, **kw: app.search.search(**kw),
+            query=query,
+            workspace_id=workspace_id,
+            source_ids=source_ids,
+            document_types=document_types,
+            limit=limit,
+            scope=scope,
+            search_mode=search_mode,
+            path_prefix=path_prefix,
+        )
+
+    @mcp.tool()
+    async def get_document(
+        source_id: str,
+        document_id: str,
+        workspace_id: str | None = None,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> CallToolResult:
+        """
+        Read a registered document (optionally a line range) under path security rules.
+
+        Args:
+            source_id: Source id from list_sources / get_workspace_info.
+            document_id: Stable document id (usually repo-relative path).
+            workspace_id: Required when multiple workspaces are registered.
+            start_line: Optional 1-based start line.
+            end_line: Optional 1-based inclusive end line.
+        """
+        if err := require_nonempty("source_id", source_id):
+            return tool_error(err)
+        if err := require_nonempty("document_id", document_id):
+            return tool_error(err)
+
+        def _call() -> dict[str, Any]:
+            return services.documents.get_document(
+                workspace_id=workspace_id,
+                source_id=source_id,
+                document_id=document_id,
+                start_line=start_line,
+                end_line=end_line,
+            )
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
 
     if caps.knowledge or caps.code or caps.lis:
 

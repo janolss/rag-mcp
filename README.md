@@ -79,13 +79,17 @@ Edit at least:
 .venv/bin/python -m rag.cli --config config.yaml index
 ```
 
-Partial upsert (does not recreate the collection):
+Partial upsert via incremental inventory (hash registry, skip unchanged, safe delete):
 
 ```bash
 .venv/bin/python -m rag.cli --config config.yaml index --files docs/requirements/booking.md apps/web/services/BookingService.ts
 ```
 
-After large refactors, prefer a full `index`.
+See [docs/incremental-indexing.md](docs/incremental-indexing.md),
+[docs/search-scopes.md](docs/search-scopes.md),
+[docs/mcp-contracts.md](docs/mcp-contracts.md), and the
+[acceptance matrix](docs/acceptance-matrix.md). After large refactors or schema
+changes, prefer a full `index`.
 
 5. Add an MCP server (use **absolute** paths; no spaces in paths):
 
