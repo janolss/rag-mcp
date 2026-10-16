@@ -57,6 +57,7 @@ def _chunk_file(
             body,
             chunk_size=config.index.chunk_size,
             chunk_overlap=config.index.chunk_overlap,
+            language=meta.get("language"),
         )
 
     patterns = config.index.requirement_id_patterns
@@ -78,6 +79,9 @@ def _chunk_file(
             "workspace_id": "default",
             "source_id": bucket or meta["type"] or "default",
         }
+        for key in ("symbol", "symbol_kind", "chunk_key", "imports"):
+            if key in piece:
+                chunk[key] = piece[key]
         chunk.update(lis_fields)
         chunks.append(chunk)
     # Line numbers relative to the text that was chunked (body without frontmatter for LIS)

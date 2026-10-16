@@ -28,6 +28,11 @@ formats = [
   "pypdf>=5.0,<6",
   "python-docx>=1.1,<2",
 ]
+parsers = [
+  "tree-sitter>=0.23,<0.26",
+  "tree-sitter-javascript>=0.23,<0.26",
+  "tree-sitter-typescript>=0.23,<0.26",
+]
 
 [project.scripts]
 rag-mcp = "rag.mcp_server:main"
