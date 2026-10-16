@@ -19,6 +19,8 @@ from rag.observability import (
     get_correlation_id,
     new_correlation_id,
 )
+from rag.security.access import AccessDenied, AccessPolicy
+from rag.security.http_auth import BearerAuthMiddleware
 from rag.services import (
     NotFoundError,
     ServiceApp,
@@ -36,12 +38,18 @@ CORRELATION_HEADER = "x-correlation-id"
 def _error_response(exc: Exception, *, status: int | None = None) -> JSONResponse:
     if isinstance(exc, NotFoundError):
         code, http_status = "not_found", 404
+    elif isinstance(exc, (AccessDenied, PermissionError)):
+        code, http_status = "forbidden", 403
     elif isinstance(exc, WorkspaceRequiredError):
         code, http_status = "workspace_required", 400
     elif isinstance(exc, (ValidationError, PydanticValidationError)):
         code, http_status = "validation_error", 400
     elif isinstance(exc, ServiceError):
-        code, http_status = "service_error", 400
+        # Authorization denials raised as ServiceError from services.
+        if "cannot access" in str(exc):
+            code, http_status = "forbidden", 403
+        else:
+            code, http_status = "service_error", 400
     else:
         logger.exception("Unhandled API error")
         code, http_status = "internal_error", 500
@@ -236,6 +244,13 @@ def mount_api_routes(app: Any, config: Config, services: ServiceApp | None = Non
 def create_api_app(config: Config, services: ServiceApp | None = None) -> Starlette:
     """Standalone Starlette app exposing only /api/v1 (useful for tests)."""
     app = Starlette(routes=build_api_routes(config, services=services))
+    policy = AccessPolicy.from_mapping(
+        {
+            "tokens": list(config.mcp.auth.tokens),
+            "require_auth_for_public_bind": config.mcp.auth.require_auth_for_public_bind,
+        }
+    )
+    app.add_middleware(BearerAuthMiddleware, policy=policy, bind_host=config.mcp.host)
     app.add_middleware(CorrelationMiddleware)
     return app
 

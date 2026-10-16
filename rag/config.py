@@ -128,6 +128,14 @@ class CapabilitiesConfig:
 
 
 @dataclass
+class McpAuthConfig:
+    """Bearer-token auth profile for non-loopback HTTP binds."""
+
+    tokens: list[dict] = field(default_factory=list)
+    require_auth_for_public_bind: bool = True
+
+
+@dataclass
 class McpConfig:
     name: str = "workspace-rag"
     instructions: str = DEFAULT_MCP_INSTRUCTIONS
@@ -142,6 +150,7 @@ class McpConfig:
     message_path: str = "/messages/"
     # Prefer True for URL clients that struggle with session headers
     stateless_http: bool = True
+    auth: McpAuthConfig = field(default_factory=McpAuthConfig)
 
 
 @dataclass
@@ -420,6 +429,14 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
     path = str(data.get("path", defaults.path) or "")
     message_path = str(data.get("message_path", defaults.message_path) or defaults.message_path)
     stateless_http = _as_bool(data.get("stateless_http"), defaults.stateless_http)
+    auth_data = data.get("auth") if isinstance(data.get("auth"), dict) else {}
+    auth = McpAuthConfig(
+        tokens=list(auth_data.get("tokens") or []),
+        require_auth_for_public_bind=_as_bool(
+            auth_data.get("require_auth_for_public_bind"),
+            True,
+        ),
+    )
     return McpConfig(
         name=name,
         instructions=instructions,
@@ -430,6 +447,7 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
         path=path,
         message_path=message_path,
         stateless_http=stateless_http,
+        auth=auth,
     )
 
 
