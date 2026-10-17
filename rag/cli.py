@@ -11,6 +11,7 @@ import sys
 from dotenv import load_dotenv
 
 from rag.config import PACKAGE_ROOT, load_config
+from rag.doctor import doctor_exit_code, format_doctor_report, run_doctor
 from rag.indexer.jobs import run_index_job
 from rag.indexer.run import status_report
 from rag.retrieval.search import search_code, search_knowledge, search_lis
@@ -74,6 +75,18 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("--domain", default=None, help="LIS domain filter")
     search.add_argument("--status", default=None, help="LIS status filter")
     search.add_argument("--top-k", type=int, default=None)
+
+    doctor = sub.add_parser("doctor", help="Check Python, deps, config, Qdrant, embeddings")
+    doctor.add_argument(
+        "--skip-network",
+        action="store_true",
+        help="Skip embedding HTTP health check",
+    )
+    doctor.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON",
+    )
     return parser
 
 
@@ -160,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 1
         return 0
+
+    if args.command == "doctor":
+        results = run_doctor(config, skip_network=bool(args.skip_network))
+        print(format_doctor_report(results, as_json=bool(args.json)), end="")
+        return doctor_exit_code(results)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

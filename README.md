@@ -41,19 +41,19 @@ my-workspace/
 cd rag-mcp
 python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-# Optional: MCP Inspector / `mcp` CLI helpers
-# pip install '.[cli]'
+pip install -U pip
+pip install -e ".[parsers]"
+# Dev/test: pip install -e ".[dev,parsers]"
+# Optional: MCP Inspector helpers — pip install -e ".[cli]"
+# Optional PDF/DOCX — pip install -e ".[formats]"
 ```
 
 With uv:
 
 ```bash
 cd rag-mcp
-uv venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
-# uv pip install '.[cli]'
+uv sync --extra parsers
+# Dev/test: uv sync --extra dev --extra parsers
 ```
 
 3. Configure:

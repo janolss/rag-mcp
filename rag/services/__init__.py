@@ -1,5 +1,6 @@
 """Application service layer protocols and implementations."""
 
+from rag.services.analysis import AnalysisServiceImpl
 from rag.services.app import ServiceApp
 from rag.services.contracts import (
     DocumentService,
@@ -21,6 +22,7 @@ from rag.services.status import StatusServiceImpl
 from rag.services.workspaces import WorkspaceServiceImpl
 
 __all__ = [
+    "AnalysisServiceImpl",
     "DocumentService",
     "DocumentServiceImpl",
     "NotFoundError",

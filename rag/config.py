@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 
@@ -84,8 +84,9 @@ DEFAULT_REQUIREMENT_ID_PATTERNS: tuple[str, ...] = (
 SOURCE_BUCKETS: frozenset[str] = frozenset({"knowledge", "code", "lis"})
 
 
-@dataclass
-class EmbeddingConfig:
+class EmbeddingConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     # openai → POST {base}/v1/embeddings ; ollama → POST {base}/api/embeddings
     provider: str = "openai"
     base_url: str = "http://localhost:1234/v1"
@@ -101,8 +102,9 @@ class EmbeddingConfig:
     concurrency: int = 4
 
 
-@dataclass
-class QdrantConfig:
+class QdrantConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     mode: str = "local"  # local | memory | server
     local_path: str = "./qdrant_data"
     url: str = "http://localhost:6333"
@@ -114,36 +116,40 @@ class QdrantConfig:
     connect_retry_delay_ms: int = 500
 
 
-@dataclass(frozen=True)
-class AppRule:
+class AppRule(BaseModel):
     """Map a repo-relative path prefix to an app label for search_code filtering."""
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     prefix: str
     name: str
 
 
-@dataclass
-class CapabilitiesConfig:
+class CapabilitiesConfig(BaseModel):
     """Which retrieval surfaces are active (tools + index buckets)."""
+
+    model_config = ConfigDict(extra="ignore")
 
     knowledge: bool = True
     code: bool = True
     lis: bool = False
 
 
-@dataclass
-class McpAuthConfig:
+class McpAuthConfig(BaseModel):
     """Bearer-token auth profile for non-loopback HTTP binds."""
 
-    tokens: list[dict] = field(default_factory=list)
+    model_config = ConfigDict(extra="ignore")
+
+    tokens: list[dict[str, Any]] = Field(default_factory=list)
     require_auth_for_public_bind: bool = True
 
 
-@dataclass
-class McpConfig:
+class McpConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     name: str = "workspace-rag"
     instructions: str = DEFAULT_MCP_INSTRUCTIONS
-    capabilities: CapabilitiesConfig = field(default_factory=CapabilitiesConfig)
+    capabilities: CapabilitiesConfig = Field(default_factory=CapabilitiesConfig)
     # stdio | streamable-http | sse | http (both /mcp + /sse on one port)
     transport: str = "stdio"
     host: str = "127.0.0.1"
@@ -154,35 +160,37 @@ class McpConfig:
     message_path: str = "/messages/"
     # Prefer True for URL clients that struggle with session headers
     stateless_http: bool = True
-    auth: McpAuthConfig = field(default_factory=McpAuthConfig)
+    auth: McpAuthConfig = Field(default_factory=McpAuthConfig)
     # HTTP request guards (body always; rate limit only on non-loopback binds)
     max_body_bytes: int = 1_048_576
     rate_limit_per_minute: int = 120
 
 
-@dataclass
-class IndexConfig:
+class IndexConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     repo_root: str = ".."
     # knowledge | code | lis | all | comma-separated (e.g. knowledge,lis)
     sources: str = "all"
     chunk_size: int = 1200
     chunk_overlap: int = 150
     status_file: str = "./index_status.json"
-    knowledge: list[str] = field(default_factory=lambda: list(DEFAULT_KNOWLEDGE_GLOBS))
-    code: list[str] = field(default_factory=lambda: list(DEFAULT_CODE_GLOBS))
-    lis: list[str] = field(default_factory=list)
-    apps: list[AppRule] = field(default_factory=list)
-    documentation_prefixes: list[str] = field(
+    knowledge: list[str] = Field(default_factory=lambda: list(DEFAULT_KNOWLEDGE_GLOBS))
+    code: list[str] = Field(default_factory=lambda: list(DEFAULT_CODE_GLOBS))
+    lis: list[str] = Field(default_factory=list)
+    apps: list[AppRule] = Field(default_factory=list)
+    documentation_prefixes: list[str] = Field(
         default_factory=lambda: list(DEFAULT_DOCUMENTATION_PREFIXES)
     )
-    ignore_dirs: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE_DIRS))
-    requirement_id_patterns: list[str] = field(
+    ignore_dirs: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORE_DIRS))
+    requirement_id_patterns: list[str] = Field(
         default_factory=lambda: list(DEFAULT_REQUIREMENT_ID_PATTERNS)
     )
 
 
-@dataclass
-class SearchConfig:
+class SearchConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     top_k: int = 8
     score_threshold: float = 0.2
     # Hybrid re-rank: final = vector_weight * vector + lexical_weight * lexical
@@ -194,15 +202,16 @@ class SearchConfig:
     default_mode: str = "semantic"
 
 
-@dataclass
-class Config:
-    embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
-    qdrant: QdrantConfig = field(default_factory=QdrantConfig)
-    index: IndexConfig = field(default_factory=IndexConfig)
-    search: SearchConfig = field(default_factory=SearchConfig)
-    mcp: McpConfig = field(default_factory=McpConfig)
+class Config(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
+    index: IndexConfig = Field(default_factory=IndexConfig)
+    search: SearchConfig = Field(default_factory=SearchConfig)
+    mcp: McpConfig = Field(default_factory=McpConfig)
     # Optional list of workspace.yaml paths. Empty => legacy single default workspace.
-    workspace_manifests: list[str] = field(default_factory=list)
+    workspace_manifests: list[str] = Field(default_factory=list)
     log_level: str = "INFO"
 
     @property
@@ -345,11 +354,11 @@ def mcp_run_kwargs(config: Config) -> dict[str, Any]:
     return kwargs
 
 
-def _merge_dataclass(cls: type, data: dict[str, Any] | None) -> Any:
+def _merge_model(cls: type[BaseModel], data: dict[str, Any] | None) -> Any:
     if not data:
         return cls()
-    valid = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in data.items() if k in valid})
+    valid = set(cls.model_fields)
+    return cls.model_validate({k: v for k, v in data.items() if k in valid})
 
 
 def _merge_index_config(data: dict[str, Any] | None) -> IndexConfig:
@@ -549,11 +558,13 @@ def load_config(path: str | Path | None = None) -> Config:
     workspace_manifests = [str(item).strip() for item in manifests_raw if str(item).strip()]
 
     config = Config(
-        embedding=_merge_dataclass(EmbeddingConfig, data.get("embedding")),
-        qdrant=_merge_dataclass(QdrantConfig, data.get("qdrant")),
-        index=_merge_index_config(data.get("index")),
-        search=_merge_dataclass(SearchConfig, data.get("search")),
-        mcp=_merge_mcp_config(data.get("mcp")),
+        embedding=_merge_model(EmbeddingConfig, data.get("embedding")),
+        qdrant=_merge_model(QdrantConfig, data.get("qdrant")),
+        index=_merge_index_config(
+            data.get("index") if isinstance(data.get("index"), dict) else None
+        ),
+        search=_merge_model(SearchConfig, data.get("search")),
+        mcp=_merge_mcp_config(data.get("mcp") if isinstance(data.get("mcp"), dict) else None),
         workspace_manifests=workspace_manifests,
         log_level=str(data.get("log_level", "INFO")),
     )

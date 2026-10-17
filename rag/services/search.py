@@ -13,7 +13,7 @@ from rag.security.access import AccessDenied, authorize_source, authorize_worksp
 from rag.security.http_auth import require_principal
 from rag.services.errors import ServiceError, ValidationError
 from rag.services.resolve import resolve_workspace_id
-from rag.store import VectorStore
+from rag.store import QdrantLockError, VectorStore
 
 _MAX_LIMIT = 50
 _DEFAULT_LIMIT = 8
@@ -129,6 +129,78 @@ class SearchServiceImpl:
             embedder=self._embedder,
         )
         return [_hit_to_dict(hit) for hit in hits]
+
+    def search_knowledge(
+        self,
+        *,
+        query: str,
+        top_k: int | None = None,
+        path_prefix: str | None = None,
+        workspace_id: str | None = None,
+    ) -> str:
+        return self._text_search(
+            retrieval.search_knowledge,
+            query,
+            top_k=top_k,
+            path_prefix=path_prefix,
+            workspace_id=workspace_id,
+        )
+
+    def search_code(
+        self,
+        *,
+        query: str,
+        app: str | None = None,
+        top_k: int | None = None,
+        path_prefix: str | None = None,
+        workspace_id: str | None = None,
+    ) -> str:
+        return self._text_search(
+            retrieval.search_code,
+            query,
+            app=app,
+            top_k=top_k,
+            path_prefix=path_prefix,
+            workspace_id=workspace_id,
+        )
+
+    def search_lis(
+        self,
+        *,
+        query: str,
+        top_k: int | None = None,
+        path_prefix: str | None = None,
+        workspace_id: str | None = None,
+        doc_type: str | None = None,
+        process_area: str | None = None,
+        domain: str | None = None,
+        status: str | None = None,
+    ) -> str:
+        return self._text_search(
+            retrieval.search_lis,
+            query,
+            top_k=top_k,
+            path_prefix=path_prefix,
+            workspace_id=workspace_id,
+            doc_type=doc_type,
+            process_area=process_area,
+            domain=domain,
+            status=status,
+        )
+
+    def _text_search(self, fn, query: str, **kwargs: Any) -> str:
+        try:
+            return fn(
+                self.config,
+                query,
+                store=self._store,
+                embedder=self._embedder,
+                **kwargs,
+            )
+        except AccessDenied as exc:
+            raise ServiceError(str(exc)) from exc
+        except QdrantLockError as exc:
+            raise ServiceError(str(exc)) from exc
 
     def _keyword_search(
         self,
