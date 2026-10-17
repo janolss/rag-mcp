@@ -11,7 +11,7 @@ from rag.config import Config
 from rag.indexer.document_registry import DocumentRecord, DocumentRegistry
 from rag.indexer.identity import content_hash, normalize_document_id
 from rag.indexer.walk import file_identity, path_identity_for_indexing, read_text_file
-from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
+from rag.security.paths import SecurePathError, assert_within_roots
 
 InventoryKind = Literal["new", "changed", "unchanged", "deleted"]
 
@@ -188,7 +188,9 @@ def observe_paths(
 
     workspace, sources = resolve_workspace_sources(config, workspace_id=workspace_id)
     repo_root = config.repo_root_path
-    policy = PathSecurityPolicy()
+    from rag.security.paths import path_security_policy_from_config
+
+    policy = path_security_policy_from_config(config)
     roots = [
         repo_root.resolve(),
         *[r.resolve() for r in _registered_extra_roots(config, workspace_id=workspace.id)],

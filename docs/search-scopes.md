@@ -4,11 +4,11 @@ Storage-layer search and delete helpers require a workspace boundary.
 
 ## Required workspace filter
 
-`build_type_app_filter` / `VectorStore.search` require `workspace_id` unless
-`allow_legacy=True` is set for single-default compatibility.
+`build_type_app_filter` / `VectorStore.search` require `workspace_id` for
+`workspace` and `source` scopes. Missing workspace raises `WorkspaceFilterError`.
 
-In multi-workspace mode, callers (and `search_hits`) must pass an explicit
-`workspace_id`. Missing workspace raises `WorkspaceFilterError` / `ValueError`.
+When exactly one workspace is registered, `search_hits` and services may infer
+its id. Multi-workspace callers must pass `workspace_id` explicitly.
 
 ## Additional filters
 

@@ -17,16 +17,21 @@ from rag.workspaces.registry import WorkspaceRegistry
 FIXTURES = Path(__file__).parent / "fixtures" / "workspaces"
 
 
-def test_legacy_config_exposes_at_least_two_sources(tmp_path: Path):
+def test_manifest_config_exposes_knowledge_and_code(tmp_path: Path):
+    from tests.workspace_fixtures import with_workspace_manifest
+
     repo = tmp_path / "repo"
     repo.mkdir()
-    config = Config(
-        index=IndexConfig(
-            repo_root=str(repo),
-            knowledge=["docs/**/*.md"],
-            code=["src/**/*.py"],
-            sources="all",
-        )
+    config = with_workspace_manifest(
+        Config(
+            index=IndexConfig(
+                repo_root=str(repo),
+                knowledge=["docs/**/*.md"],
+                code=["src/**/*.py"],
+                sources="all",
+            )
+        ),
+        tmp_path,
     )
     workspace, sources = resolve_workspace_sources(config)
     assert workspace.id == "default"

@@ -10,8 +10,12 @@ from rag.indexer.identity import normalize_document_id
 from rag.indexer.source_model import resolve_workspace_sources
 from rag.security.access import AccessDenied, authorize_source, authorize_workspace
 from rag.security.http_auth import require_principal
-from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
-from rag.services.errors import NotFoundError, ServiceError, ValidationError
+from rag.security.paths import (
+    SecurePathError,
+    assert_within_roots,
+    path_security_policy_from_config,
+)
+from rag.services.errors import ForbiddenError, NotFoundError, ValidationError
 from rag.services.resolve import require_workspace
 
 
@@ -45,7 +49,7 @@ class DocumentServiceImpl:
             authorize_workspace(principal, workspace.id)
             authorize_source(principal, source_id)
         except AccessDenied as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ForbiddenError(str(exc)) from exc
 
         _, sources = resolve_workspace_sources(self.config, workspace_id=workspace.id)
         source = next((s for s in sources if s.id == source_id), None)
@@ -74,7 +78,7 @@ class DocumentServiceImpl:
             else:
                 path = repo_candidate
 
-        policy = PathSecurityPolicy()
+        policy = path_security_policy_from_config(self.config)
         roots = [repo_root, source_root]
         try:
             canonical = assert_within_roots(path, roots, policy=policy)

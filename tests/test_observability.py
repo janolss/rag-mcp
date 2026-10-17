@@ -14,20 +14,24 @@ from rag.observability import (
     redact,
 )
 from starlette.testclient import TestClient
+from tests.workspace_fixtures import with_workspace_manifest
 
 
 def _config(tmp_path: Path) -> Config:
-    return Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="obs"),
-        index=IndexConfig(
-            repo_root=str(tmp_path),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=[],
-            code=[],
-            sources="knowledge",
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="obs"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0),
         ),
-        search=SearchConfig(score_threshold=0.0),
+        tmp_path,
     )
 
 

@@ -5,7 +5,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
+from rag.config import Config, IndexConfig
+from rag.security.paths import (
+    PathSecurityPolicy,
+    SecurePathError,
+    assert_within_roots,
+    path_security_policy_from_config,
+)
 
 
 def test_rejects_path_traversal(tmp_path: Path):
@@ -54,6 +60,27 @@ def test_rejects_secrets_and_large_files(tmp_path: Path):
     policy = PathSecurityPolicy(max_file_bytes=10)
     with pytest.raises(SecurePathError, match="max size"):
         assert_within_roots(big, [root], policy=policy)
+
+
+def test_extra_secret_names_from_config(tmp_path: Path):
+    root = tmp_path / "root"
+    root.mkdir()
+    secret = root / "my-secrets.json"
+    secret.write_text("{}", encoding="utf-8")
+    config = Config(
+        index=IndexConfig(
+            repo_root=str(tmp_path),
+            extra_secret_names=["my-secrets.json"],
+            extra_secret_suffixes=["cred"],
+        )
+    )
+    policy = path_security_policy_from_config(config)
+    with pytest.raises(SecurePathError, match="secret"):
+        assert_within_roots(secret, [root], policy=policy)
+    cred = root / "token.cred"
+    cred.write_text("x", encoding="utf-8")
+    with pytest.raises(SecurePathError, match="secret"):
+        assert_within_roots(cred, [root], policy=policy)
 
 
 def test_rejects_extended_secret_names_and_suffixes(tmp_path: Path):

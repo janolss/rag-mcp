@@ -7,7 +7,7 @@ from typing import Any
 from rag.config import Config
 from rag.security.access import AccessDenied, authorize_workspace
 from rag.security.http_auth import require_principal
-from rag.services.errors import NotFoundError, ServiceError
+from rag.services.errors import ForbiddenError, NotFoundError
 from rag.services.resolve import registry_for, workspace_to_dict
 from rag.workspaces.registry import WorkspaceNotFoundError
 
@@ -35,7 +35,7 @@ class WorkspaceServiceImpl:
         try:
             authorize_workspace(principal, workspace_id)
         except AccessDenied as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ForbiddenError(str(exc)) from exc
         registry = registry_for(self.config)
         try:
             workspace = registry.get(workspace_id)

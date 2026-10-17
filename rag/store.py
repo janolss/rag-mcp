@@ -239,12 +239,13 @@ class VectorStore:
         self,
         files: Sequence[str],
         *,
-        workspace_id: str | None = None,
-        allow_legacy: bool = False,
+        workspace_id: str,
     ) -> None:
         """Delete all points whose payload.file is in files (workspace-scoped)."""
         if not files or not self.collection_exists():
             return
+        if not (workspace_id or "").strip():
+            raise WorkspaceFilterError("workspace_id is required for delete_by_files")
         unique = sorted({f.replace("\\", "/") for f in files if f})
         if not unique:
             return
@@ -252,20 +253,12 @@ class VectorStore:
             models.FieldCondition(
                 key="file",
                 match=models.MatchAny(any=unique),
-            )
+            ),
+            models.FieldCondition(
+                key="workspace_id",
+                match=models.MatchValue(value=workspace_id),
+            ),
         ]
-        if workspace_id:
-            must.append(
-                models.FieldCondition(
-                    key="workspace_id",
-                    match=models.MatchValue(value=workspace_id),
-                )
-            )
-        elif not allow_legacy:
-            raise WorkspaceFilterError(
-                "workspace_id is required for delete_by_files "
-                "(pass allow_legacy=True only for single-default legacy mode)"
-            )
         self.client.delete(
             collection_name=self.collection,
             points_selector=models.FilterSelector(filter=models.Filter(must=must)),
@@ -404,7 +397,6 @@ class VectorStore:
         top_k: int,
         score_threshold: float | None,
         workspace_id: str | None = None,
-        allow_legacy: bool = False,
         scope: SearchScope | str = "workspace",
         source_id: str | None = None,
         document_id: str | None = None,
@@ -425,7 +417,6 @@ class VectorStore:
 
         query_filter = build_type_app_filter(
             workspace_id=workspace_id,
-            allow_legacy=allow_legacy,
             scope=scope,
             source_id=source_id,
             document_id=document_id,
@@ -454,7 +445,6 @@ class VectorStore:
         *,
         limit: int = 32,
         workspace_id: str | None = None,
-        allow_legacy: bool = False,
         type_filter: list[str] | None = None,
         app_filter: str | None = None,
     ) -> list[models.Record]:
@@ -464,7 +454,6 @@ class VectorStore:
             )
         query_filter = build_type_app_filter(
             workspace_id=workspace_id,
-            allow_legacy=allow_legacy,
             type_filter=type_filter,
             app_filter=app_filter,
             requirement_id=requirement_id,
@@ -485,22 +474,13 @@ class VectorStore:
             logger.debug("Error while closing Qdrant client", exc_info=True)
 
 
-def _workspace_condition(
-    *,
-    workspace_id: str | None,
-    allow_legacy: bool,
-) -> models.FieldCondition | None:
+def _workspace_condition(*, workspace_id: str | None) -> models.FieldCondition:
     if workspace_id:
         return models.FieldCondition(
             key="workspace_id",
             match=models.MatchValue(value=workspace_id),
         )
-    if allow_legacy:
-        return None
-    raise WorkspaceFilterError(
-        "workspace_id is required for storage filters "
-        "(pass allow_legacy=True only for single-default legacy mode)"
-    )
+    raise WorkspaceFilterError("workspace_id is required for storage filters")
 
 
 def resolve_search_scope(scope: SearchScope | str | None) -> str:
@@ -521,7 +501,6 @@ def resolve_search_scope(scope: SearchScope | str | None) -> str:
 def build_type_app_filter(
     *,
     workspace_id: str | None = None,
-    allow_legacy: bool = False,
     scope: SearchScope | str = "workspace",
     source_id: str | None = None,
     document_id: str | None = None,
@@ -538,9 +517,9 @@ def build_type_app_filter(
     """
     Build a Qdrant payload filter.
 
-    ``workspace_id`` is required unless ``allow_legacy=True`` (single default
-    workspace compatibility). Scope ``global`` raises ``ScopeDisabledError``.
-    Scope ``related`` requires ``related_workspace_ids`` (authorized expansion).
+    ``workspace_id`` is required for workspace/source scopes. Scope ``global``
+    raises ``ScopeDisabledError``. Scope ``related`` requires
+    ``related_workspace_ids`` (authorized expansion).
     """
     resolved_scope = resolve_search_scope(scope)
     must: list[models.FieldCondition] = []
@@ -563,11 +542,7 @@ def build_type_app_filter(
             )
         )
     else:
-        workspace_clause = _workspace_condition(
-            workspace_id=workspace_id, allow_legacy=allow_legacy
-        )
-        if workspace_clause is not None:
-            must.append(workspace_clause)
+        must.append(_workspace_condition(workspace_id=workspace_id))
 
     if resolved_scope == "source":
         if not source_id:

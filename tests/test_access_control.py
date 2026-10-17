@@ -27,8 +27,9 @@ from rag.security.access import (
     hash_token,
 )
 from rag.security.http_auth import set_principal
-from rag.services import ServiceApp, ServiceError
+from rag.services import ForbiddenError, ServiceApp
 from starlette.testclient import TestClient
+from tests.workspace_fixtures import with_workspace_manifest
 
 
 def _base_config(
@@ -38,24 +39,31 @@ def _base_config(
     tokens: list[dict] | None = None,
     max_body_bytes: int = 1_048_576,
     rate_limit_per_minute: int = 120,
+    require_auth_always: bool = False,
 ) -> Config:
-    return Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="acl"),
-        index=IndexConfig(
-            repo_root=str(tmp_path),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=[],
-            code=[],
-            sources="knowledge",
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="acl"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0),
+            mcp=McpConfig(
+                host=host,
+                auth=McpAuthConfig(
+                    tokens=list(tokens or []),
+                    require_auth_always=require_auth_always,
+                ),
+                max_body_bytes=max_body_bytes,
+                rate_limit_per_minute=rate_limit_per_minute,
+            ),
         ),
-        search=SearchConfig(score_threshold=0.0),
-        mcp=McpConfig(
-            host=host,
-            auth=McpAuthConfig(tokens=list(tokens or [])),
-            max_body_bytes=max_body_bytes,
-            rate_limit_per_minute=rate_limit_per_minute,
-        ),
+        tmp_path,
     )
 
 
@@ -143,22 +151,43 @@ def test_loopback_allows_anonymous_rest(tmp_path: Path):
     assert client.get("/api/v1/workspaces").status_code == 200
 
 
+def test_require_auth_always_on_loopback(tmp_path: Path):
+    digest = hash_token("always-token")
+    config = _base_config(
+        tmp_path,
+        host="127.0.0.1",
+        tokens=[{"name": "ops", "token_hash": digest, "workspaces": ["*"]}],
+        require_auth_always=True,
+    )
+    client = TestClient(create_api_app(config))
+    assert client.get("/api/v1/workspaces").status_code == 401
+    assert client.get("/health").status_code == 200
+    ok = client.get(
+        "/api/v1/workspaces",
+        headers={"Authorization": "Bearer always-token"},
+    )
+    assert ok.status_code == 200
+
+
 def test_search_documents_status_respect_workspace_allowlist(tmp_path: Path):
     repo = tmp_path / "repo"
     docs = repo / "docs"
     docs.mkdir(parents=True)
     (docs / "a.md").write_text("# Hello\n", encoding="utf-8")
-    config = Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="acl_svc"),
-        index=IndexConfig(
-            repo_root=str(repo),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=["docs/**/*.md"],
-            code=[],
-            sources="knowledge",
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="acl_svc"),
+            index=IndexConfig(
+                repo_root=str(repo),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=["docs/**/*.md"],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0),
         ),
-        search=SearchConfig(score_threshold=0.0),
+        tmp_path,
     )
     services = ServiceApp(config)
     restricted = Principal(
@@ -169,15 +198,15 @@ def test_search_documents_status_respect_workspace_allowlist(tmp_path: Path):
     )
     set_principal(restricted)
     try:
-        with pytest.raises(ServiceError, match="cannot access"):
+        with pytest.raises(ForbiddenError, match="cannot access"):
             services.search.search(workspace_id="default", query="hello")
-        with pytest.raises(ServiceError, match="cannot access"):
+        with pytest.raises(ForbiddenError, match="cannot access"):
             services.documents.get_document(
                 workspace_id="default",
                 source_id="knowledge",
                 document_id="docs/a.md",
             )
-        with pytest.raises(ServiceError, match="cannot access"):
+        with pytest.raises(ForbiddenError, match="cannot access"):
             services.status.get_index_status(workspace_id="default")
     finally:
         set_principal(None)
@@ -198,7 +227,7 @@ def test_search_documents_status_respect_workspace_allowlist(tmp_path: Path):
             document_id="docs/a.md",
         )
         assert "Hello" in doc["content"]
-        with pytest.raises(ServiceError, match="cannot access"):
+        with pytest.raises(ForbiddenError, match="cannot access"):
             services.search.search(
                 workspace_id="default",
                 query="hello",

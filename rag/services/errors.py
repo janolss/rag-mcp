@@ -7,6 +7,10 @@ class ServiceError(Exception):
     """Base error for service-layer failures."""
 
 
+class ForbiddenError(ServiceError):
+    """Principal is not allowed to access the requested resource."""
+
+
 class NotFoundError(ServiceError):
     """Requested workspace, source, or document does not exist."""
 

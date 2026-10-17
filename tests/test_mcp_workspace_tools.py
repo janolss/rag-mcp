@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 
 from rag.config import (
     CapabilitiesConfig,
@@ -15,22 +16,26 @@ from rag.config import (
 )
 from rag.mcp_server import create_mcp_server
 from rag.runtime import RagRuntime
+from tests.workspace_fixtures import with_workspace_manifest
 
 
-def _make():
-    config = Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="mcp_ws"),
-        index=IndexConfig(sources="knowledge"),
-        mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=True, code=False, lis=False)),
+def _make(tmp_path: Path):
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="mcp_ws"),
+            index=IndexConfig(repo_root=str(tmp_path), sources="knowledge"),
+            mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=True, code=False, lis=False)),
+        ),
+        tmp_path,
     )
     runtime = RagRuntime(config)
     server = create_mcp_server(config, runtime)
     return server
 
 
-def test_workspace_tools_registered():
-    server = _make()
+def test_workspace_tools_registered(tmp_path: Path):
+    server = _make(tmp_path)
 
     async def list_tools():
         return await server.list_tools()
@@ -42,14 +47,13 @@ def test_workspace_tools_registered():
     assert "get_document" in names
     assert "get_index_status" in names
     assert "search" in names
-    # Legacy wrappers remain.
     assert "search_knowledge" in names
-    assert "index_status" in names
+    assert "index_status" not in names
     assert "list_sources" in names
 
 
-def test_list_workspaces_tool_returns_default():
-    server = _make()
+def test_list_workspaces_tool_returns_default(tmp_path: Path):
+    server = _make(tmp_path)
 
     async def call():
         return await server.call_tool("list_workspaces", {})
@@ -60,8 +64,8 @@ def test_list_workspaces_tool_returns_default():
     assert payload[0]["id"] == "default"
 
 
-def test_get_workspace_info_unknown_is_error():
-    server = _make()
+def test_get_workspace_info_unknown_is_error(tmp_path: Path):
+    server = _make(tmp_path)
 
     async def call():
         return await server.call_tool("get_workspace_info", {"workspace_id": "missing"})

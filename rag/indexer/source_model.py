@@ -24,7 +24,7 @@ def resolve_workspace_sources(
     """
     Resolve sources for a workspace.
 
-    Manifest and legacy sources are both active for indexing. When more than
+    Manifest sources are walked for indexing. When more than
     one workspace is registered, callers must pass ``workspace_id``.
     """
     registry = WorkspaceRegistry.from_config(config)
@@ -99,9 +99,10 @@ def discover_workspace_files(
     only that source is walked.
     """
     from rag.indexer.walk import path_identity_for_indexing
+    from rag.security.paths import path_security_policy_from_config
 
     workspace, sources = resolve_workspace_sources(config, workspace_id=workspace_id)
-    active = policy or PathSecurityPolicy()
+    active = policy or path_security_policy_from_config(config)
     discovered: list[tuple[Path, str, str, str]] = []
     for source in sources:
         if source_id is not None and source.id != source_id:

@@ -10,6 +10,7 @@ from typing import Any
 from starlette.responses import JSONResponse
 
 from rag.security.access import is_loopback_host
+from rag.security.http_auth import _looks_like_ip
 
 
 class MaxBodyMiddleware:
@@ -48,7 +49,8 @@ class RateLimitMiddleware:
     """
     Sliding-window rate limit per client IP.
 
-    Inactive on loopback binds, or when ``rate_limit_per_minute`` is 0.
+    Inactive when ``rate_limit_per_minute`` is 0, or when the peer (or bind host
+    as fallback) is loopback and ``require_auth_always`` is false.
     """
 
     def __init__(
@@ -57,10 +59,12 @@ class RateLimitMiddleware:
         *,
         rate_limit_per_minute: int = 120,
         bind_host: str = "127.0.0.1",
+        require_auth_always: bool = False,
     ):
         self.app = app
         self.limit = max(0, int(rate_limit_per_minute))
         self.bind_host = bind_host
+        self.require_auth_always = require_auth_always
         self._window_s = 60.0
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self._lock = Lock()
@@ -70,6 +74,16 @@ class RateLimitMiddleware:
         if client and client[0]:
             return str(client[0])
         return "unknown"
+
+    def _limits_active(self, scope: dict) -> bool:
+        if self.limit <= 0:
+            return False
+        if self.require_auth_always:
+            return True
+        peer = self._client_ip(scope)
+        if peer != "unknown" and _looks_like_ip(peer):
+            return not is_loopback_host(peer)
+        return not is_loopback_host(self.bind_host)
 
     def _allow(self, key: str) -> bool:
         now = time.monotonic()
@@ -87,7 +101,7 @@ class RateLimitMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        if self.limit <= 0 or is_loopback_host(self.bind_host):
+        if not self._limits_active(scope):
             await self.app(scope, receive, send)
             return
 

@@ -53,7 +53,7 @@ DEFAULT_MCP_INSTRUCTIONS = """You have access to a private RAG index for one or 
 Workflow (mandatory):
 1. Start with list_workspaces to discover registered workspace ids (and tags/names). Prefer this before any search or status call when the target workspace is unclear.
 2. Call get_workspace_info(workspace_id) and/or list_sources(workspace_id) for the chosen workspace. Pass workspace_id into search / search_knowledge / search_code / get_index_status when more than one workspace is registered (safe to pass with a single workspace too).
-3. Call get_index_status (or legacy index_status) before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index for that workspace.
+3. Call get_index_status before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index for that workspace.
 4. For scoped app work, use list_sources / known apps and pass app=<name> to code tools.
 5. Before implementing a change: call get_context_pack(task) or impact_of_change(change). Do not invent architecture from memory.
 6. When a requirement ID or requirement text is given: call trace_requirement first.
@@ -142,6 +142,8 @@ class McpAuthConfig(BaseModel):
 
     tokens: list[dict[str, Any]] = Field(default_factory=list)
     require_auth_for_public_bind: bool = True
+    # When true, bearer is required even on loopback (reverse-proxy / shared host).
+    require_auth_always: bool = False
 
 
 class McpConfig(BaseModel):
@@ -186,6 +188,9 @@ class IndexConfig(BaseModel):
     requirement_id_patterns: list[str] = Field(
         default_factory=lambda: list(DEFAULT_REQUIREMENT_ID_PATTERNS)
     )
+    # Unioned with built-in secret denylist (names/suffixes, case-insensitive).
+    extra_secret_names: list[str] = Field(default_factory=list)
+    extra_secret_suffixes: list[str] = Field(default_factory=list)
 
 
 class SearchConfig(BaseModel):
@@ -210,7 +215,7 @@ class Config(BaseModel):
     index: IndexConfig = Field(default_factory=IndexConfig)
     search: SearchConfig = Field(default_factory=SearchConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
-    # Optional list of workspace.yaml paths. Empty => legacy single default workspace.
+    # Required list of workspace.yaml paths (at least one).
     workspace_manifests: list[str] = Field(default_factory=list)
     log_level: str = "INFO"
 
@@ -396,6 +401,8 @@ def _merge_index_config(data: dict[str, Any] | None) -> IndexConfig:
         "documentation_prefixes",
         "ignore_dirs",
         "requirement_id_patterns",
+        "extra_secret_names",
+        "extra_secret_suffixes",
     ):
         if list_key in data and data[list_key] is not None:
             kwargs[list_key] = [str(x) for x in data[list_key]]
@@ -455,6 +462,10 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
         require_auth_for_public_bind=_as_bool(
             auth_data.get("require_auth_for_public_bind"),
             True,
+        ),
+        require_auth_always=_as_bool(
+            auth_data.get("require_auth_always"),
+            False,
         ),
     )
     max_body_bytes = int(data.get("max_body_bytes", defaults.max_body_bytes))
@@ -524,6 +535,12 @@ def _overlay_env(config: Config) -> Config:
             setattr(config, section, value)
         else:
             setattr(getattr(config, section), field_name, value)
+
+    raw_always = os.environ.get("RAG_MCP_REQUIRE_AUTH_ALWAYS")
+    if raw_always is not None:
+        config.mcp.auth.require_auth_always = _as_bool(
+            raw_always, config.mcp.auth.require_auth_always
+        )
 
     # Capability toggles (RAG_CAPABILITY_KNOWLEDGE / _CODE / _LIS)
     for cap_name in ("knowledge", "code", "lis"):

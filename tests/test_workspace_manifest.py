@@ -87,7 +87,9 @@ def test_config_can_load_multiple_manifests(tmp_path: Path):
     assert registry.get("lk_apps").legacy is False
 
 
-def test_legacy_config_without_manifests_still_works():
+def test_config_without_manifests_raises():
+    from rag.workspaces import WorkspaceConfigError
+
     config = Config(index=IndexConfig(repo_root="."))
-    registry = WorkspaceRegistry.from_config(config)
-    assert registry.ids() == ["default"]
+    with pytest.raises(WorkspaceConfigError, match="workspace_manifests"):
+        WorkspaceRegistry.from_config(config)

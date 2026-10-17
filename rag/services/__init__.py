@@ -11,6 +11,7 @@ from rag.services.contracts import (
 )
 from rag.services.documents import DocumentServiceImpl
 from rag.services.errors import (
+    ForbiddenError,
     NotFoundError,
     ServiceError,
     ValidationError,
@@ -25,6 +26,7 @@ __all__ = [
     "AnalysisServiceImpl",
     "DocumentService",
     "DocumentServiceImpl",
+    "ForbiddenError",
     "NotFoundError",
     "SearchService",
     "SearchServiceImpl",

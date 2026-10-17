@@ -6,11 +6,13 @@ from typing import Any
 
 from rag.config import Config
 from rag.indexer.run import status_report
+from rag.mcp_results import resource_error, resource_ok
 from rag.observability import derive_lifecycle, get_correlation_id
 from rag.security.access import AccessDenied, authorize_source, authorize_workspace
 from rag.security.http_auth import require_principal
-from rag.services.errors import ServiceError
+from rag.services.errors import ForbiddenError
 from rag.services.resolve import resolve_workspace_id
+from rag.store import QdrantLockError
 
 
 class StatusServiceImpl:
@@ -31,7 +33,7 @@ class StatusServiceImpl:
             if source_id:
                 authorize_source(principal, source_id)
         except AccessDenied as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ForbiddenError(str(exc)) from exc
 
         report = status_report(self.config)
         report["workspace_id"] = resolved
@@ -49,3 +51,11 @@ class StatusServiceImpl:
         else:
             report["last_success_at"] = None
         return report
+
+    def status_resource(self) -> str:
+        try:
+            return resource_ok(self.get_index_status())
+        except (AccessDenied, ForbiddenError, QdrantLockError) as exc:
+            return resource_error(str(exc))
+        except Exception as exc:
+            return resource_error(f"failed to read index status: {exc}")

@@ -127,7 +127,6 @@ def search_hits(
     document_id: str | None = None,
     language: str | None = None,
     scope: str = "workspace",
-    allow_legacy: bool | None = None,
     related_workspace_ids: list[str] | None = None,
     top_k: int | None = None,
     score_threshold: float | None = None,
@@ -143,29 +142,22 @@ def search_hits(
     fetch_k = limit * 3 if (path_prefix or config.search.lexical_weight > 0) else limit
     threshold = config.search.score_threshold if score_threshold is None else score_threshold
 
-    # Auto-resolve when exactly one workspace is registered (legacy ``default``
-    # or a single manifest workspace such as ``lk_apps``). Multi-workspace
-    # configs must pass an explicit workspace_id unless allow_legacy=True.
+    # Auto-resolve when exactly one workspace is registered. Multi-workspace
+    # configs must pass an explicit workspace_id.
     resolved_workspace = workspace_id
     registry = WorkspaceRegistry.from_config(config)
     if resolved_workspace is None:
         ids = registry.ids()
         if len(ids) == 1:
             resolved_workspace = ids[0]
-            legacy = True if allow_legacy is None else allow_legacy
-        elif allow_legacy:
-            legacy = True
         else:
             raise ValueError("workspace_id is required when more than one workspace is registered")
-    else:
-        legacy = bool(allow_legacy) if allow_legacy is not None else False
 
     from rag.security.access import authorize_source, authorize_workspace
     from rag.security.http_auth import require_principal
 
     principal = require_principal()
-    if resolved_workspace is not None:
-        authorize_workspace(principal, resolved_workspace)
+    authorize_workspace(principal, resolved_workspace)
     if source_id:
         authorize_source(principal, source_id)
 
@@ -192,7 +184,6 @@ def search_hits(
             top_k=fetch_k,
             score_threshold=threshold,
             workspace_id=resolved_workspace,
-            allow_legacy=legacy,
             scope=scope,
             source_id=source_id,
             document_id=document_id,

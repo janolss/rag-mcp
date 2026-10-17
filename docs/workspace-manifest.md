@@ -22,8 +22,9 @@ workspace_manifests:
   - ./workspaces/shared-auth.yaml
 ```
 
-If `workspace_manifests` is empty or omitted, the server keeps the legacy
-synthetic `default` workspace from `config.yaml`.
+`workspace_manifests` must contain at least one path. See
+[legacy-migration.md](legacy-migration.md) if you previously relied on
+`index.*` globs alone.
 
 ## Examples
 

@@ -54,17 +54,22 @@ def test_keyword_finds_exact_token(tmp_path: Path):
 
 
 def test_hybrid_service_mode(tmp_path: Path, monkeypatch):
-    config = Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="hyb"),
-        index=IndexConfig(
-            repo_root=str(tmp_path),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=[],
-            code=[],
-            sources="knowledge",
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="hyb"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0, rrf_k=60),
         ),
-        search=SearchConfig(score_threshold=0.0, rrf_k=60),
+        tmp_path,
     )
     lexical = LexicalIndex(tmp_path / "lex.sqlite3")
     lexical.upsert_documents(

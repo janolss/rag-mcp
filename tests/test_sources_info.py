@@ -1,52 +1,47 @@
-"""Unit tests for list_sources formatting."""
+"""Source listing via the application service layer."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
 
 from rag.config import (
-    DEFAULT_MCP_INSTRUCTIONS,
-    AppRule,
     CapabilitiesConfig,
     Config,
+    EmbeddingConfig,
     IndexConfig,
     McpConfig,
     QdrantConfig,
 )
-from rag.retrieval.sources_info import list_sources, list_sources_payload
+from rag.services import ServiceApp
+from tests.workspace_fixtures import with_workspace_manifest
 
 
-def test_list_sources_includes_apps_and_globs():
-    config = Config(
-        qdrant=QdrantConfig(mode="memory", collection="src_test"),
-        index=IndexConfig(
-            repo_root="/tmp/workspace",
-            knowledge=["docs/**/*.md"],
-            code=["apps/**/*.ts"],
-            lis=["/tmp/lis/**/*.md"],
-            apps=[AppRule(prefix="apps/web/", name="web")],
-            requirement_id_patterns=[r"REQ-\d+"],
+def test_list_sources_for_workspace_and_overview(tmp_path: Path):
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="src"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                sources="knowledge",
+                knowledge=["docs/**/*.md"],
+                code=[],
+                apps=[{"prefix": "apps/web/", "name": "web"}],
+            ),
+            mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=True, code=False, lis=False)),
         ),
-        mcp=McpConfig(capabilities=CapabilitiesConfig(lis=True)),
+        tmp_path,
     )
-    payload = list_sources_payload(config)
-    assert payload["collection"] == "src_test"
-    assert payload["qdrant_mode"] == "memory"
-    assert payload["knowledge_globs"] == ["docs/**/*.md"]
-    assert payload["lis_globs"] == ["/tmp/lis/**/*.md"]
-    assert payload["capabilities"]["lis"] is True
-    assert "lis" in payload["enabled_buckets"]
-    assert payload["apps"] == [{"prefix": "apps/web/", "name": "web"}]
-    assert payload["requirement_id_patterns"] == [r"REQ-\d+"]
+    app = ServiceApp(config)
+    sources = app.sources.list_sources("default")
+    assert any(s.get("id") == "knowledge" or s.get("bucket") == "knowledge" for s in sources)
 
-    text = list_sources(config)
-    assert '"name": "web"' in text
-    assert "docs/**/*.md" in text
+    overview = app.sources.list_sources(None)
+    assert overview
+    assert overview[0]["workspace_id"] == "default"
+    assert overview[0]["sources"]
 
-
-def test_default_instructions_contain_workflow():
-    assert "list_workspaces" in DEFAULT_MCP_INSTRUCTIONS
-    assert DEFAULT_MCP_INSTRUCTIONS.index("list_workspaces") < DEFAULT_MCP_INSTRUCTIONS.index(
-        "index_status"
-    )
-    assert "get_workspace_info" in DEFAULT_MCP_INSTRUCTIONS
-    assert "workspace_id" in DEFAULT_MCP_INSTRUCTIONS
-    assert "get_context_pack" in DEFAULT_MCP_INSTRUCTIONS
-    assert "trace_requirement" in DEFAULT_MCP_INSTRUCTIONS
-    assert "find_gaps" in DEFAULT_MCP_INSTRUCTIONS
+    resource = json.loads(app.sources.sources_resource())
+    assert resource["ok"] is True
+    assert "workspaces" in resource

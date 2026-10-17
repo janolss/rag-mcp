@@ -32,11 +32,9 @@ from rag.mcp_validate import (
     validate_lis_filters,
     validate_top_k,
 )
-from rag.retrieval.sources_info import list_sources as _list_sources
-from rag.retrieval.sources_info import list_sources_resource as _list_sources_resource
-from rag.retrieval.status_info import index_status_resource as _index_status_resource
 from rag.runtime import RagRuntime
 from rag.services import (
+    ForbiddenError,
     NotFoundError,
     ServiceApp,
     ServiceError,
@@ -74,7 +72,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     services = ServiceApp(config)
 
     def _service_error(exc: Exception) -> CallToolResult:
-        if isinstance(exc, (ValidationError, NotFoundError, ServiceError)):
+        if isinstance(exc, (ValidationError, NotFoundError, ForbiddenError, ServiceError)):
             return tool_error(str(exc))
         logger.exception("RAG service call failed")
         return tool_error(str(exc))
@@ -288,10 +286,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
         """
         Structured index status for an optional workspace/source scope.
 
-        Prefer this over the legacy index_status tool for multi-workspace setups.
-
         Args:
-            workspace_id: Optional workspace id (inferred when only default exists).
+            workspace_id: Optional workspace id (inferred when exactly one is registered).
             source_id: Optional source id annotation.
         """
 
@@ -308,44 +304,23 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
         return as_tool_result(json.dumps(payload, indent=2) + "\n")
 
     @mcp.tool()
-    async def index_status() -> CallToolResult:
+    async def list_sources(workspace_id: str | None = None) -> CallToolResult:
         """
-        Show index freshness: points count, model, git_sha, stale hints.
+        List sources for a workspace, or all workspaces the caller may access.
 
-        Legacy wrapper; prefer get_index_status for workspace-scoped clients.
-        Call before non-trivial change or review work.
+        Args:
+            workspace_id: Optional workspace id. When omitted, returns sources
+                grouped by workspace for every workspace the principal can access.
         """
 
-        def _call() -> dict[str, Any]:
-            return services.status.get_index_status()
+        def _call() -> list[dict[str, Any]]:
+            return services.sources.list_sources(workspace_id)
 
         try:
             payload = await anyio.to_thread.run_sync(_call)
         except Exception as exc:
             return _service_error(exc)
         return as_tool_result(json.dumps(payload, indent=2) + "\n")
-
-    @mcp.tool()
-    async def list_sources(workspace_id: str | None = None) -> CallToolResult:
-        """
-        List sources for a workspace, or legacy config summary when workspace_id is omitted.
-
-        Args:
-            workspace_id: Optional workspace id. When set, returns that workspace's sources only.
-        """
-        if workspace_id:
-
-            def _call_ws() -> list[dict[str, Any]]:
-                return services.sources.list_sources(workspace_id)
-
-            try:
-                payload = await anyio.to_thread.run_sync(_call_ws)
-            except Exception as exc:
-                return _service_error(exc)
-            return as_tool_result(json.dumps(payload, indent=2) + "\n")
-
-        text = await anyio.to_thread.run_sync(_list_sources, config)
-        return as_tool_result(text)
 
     @mcp.tool()
     async def search(
@@ -545,13 +520,13 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
 
     @mcp.resource("rag://status", mime_type="application/json")
     def resource_status() -> str:
-        """Index status JSON (same payload as index_status tool, with ok envelope)."""
-        return _index_status_resource(config)
+        """Index status JSON (same payload as get_index_status, with ok envelope)."""
+        return services.status.status_resource()
 
     @mcp.resource("rag://sources", mime_type="application/json")
     def resource_sources() -> str:
-        """Configured sources JSON (same payload as list_sources tool, with ok envelope)."""
-        return _list_sources_resource(config)
+        """Sources JSON for workspaces the caller may access (ok envelope)."""
+        return services.sources.sources_resource()
 
     if caps.knowledge or caps.code:
 

@@ -25,17 +25,21 @@ def test_router_activate_and_rollback(tmp_path: Path):
 
 def test_failed_staging_does_not_activate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from rag.indexer import run as run_mod
+    from tests.workspace_fixtures import with_workspace_manifest
 
-    config = Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="base"),
-        index=IndexConfig(
-            repo_root=str(tmp_path),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=["*.md"],
-            code=[],
-            sources="knowledge",
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="base"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=["*.md"],
+                code=[],
+                sources="knowledge",
+            ),
         ),
+        tmp_path,
     )
     (tmp_path / "README.md").write_text("# hi\n", encoding="utf-8")
 

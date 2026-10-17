@@ -7,11 +7,7 @@ from rag.store import (
 )
 
 
-def test_filter_none_when_no_constraints_legacy():
-    assert build_type_app_filter(allow_legacy=True) is None
-
-
-def test_filter_requires_workspace_without_legacy():
+def test_filter_requires_workspace():
     with pytest.raises(WorkspaceFilterError, match="workspace_id is required"):
         build_type_app_filter()
 

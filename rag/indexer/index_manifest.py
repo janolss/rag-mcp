@@ -83,7 +83,8 @@ def check_compatibility(
         raise IndexCompatibilityError("index manifest is missing")
     if existing.payload_schema_version == 0:
         raise IndexCompatibilityError(
-            "legacy index (schema v0) is read-only; run a full reindex to migrate"
+            "index payload_schema_version=0 is unsupported; run a full reindex "
+            f"(expected payload_schema_version={expected.payload_schema_version})"
         )
     mismatches: list[str] = []
     if existing.payload_schema_version != expected.payload_schema_version:
