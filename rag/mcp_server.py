@@ -668,11 +668,18 @@ def main(argv: list[str] | None = None) -> None:
     transport = normalize_mcp_transport(config.mcp.transport)
     if transport != "stdio":
         if config.mcp.host in {"0.0.0.0", "::", "[::]"}:
-            logger.warning(
-                "MCP HTTP is bound to %s without authentication. "
-                "Prefer 127.0.0.1 for local use, or put a reverse proxy with auth in front.",
-                config.mcp.host,
-            )
+            if config.mcp.auth.tokens:
+                logger.warning(
+                    "MCP HTTP is bound to %s; clients must send Authorization: Bearer. "
+                    "Prefer 127.0.0.1 for local use.",
+                    config.mcp.host,
+                )
+            else:
+                logger.warning(
+                    "MCP HTTP is bound to %s and mcp.auth.tokens is empty; "
+                    "startup should have been refused. Prefer 127.0.0.1.",
+                    config.mcp.host,
+                )
         urls = endpoint_urls(config)
         print("MCP HTTP endpoints:", file=sys.stderr)
         for kind, endpoint in urls.items():

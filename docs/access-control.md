@@ -6,6 +6,8 @@
   principal.
 - Binding HTTP to a non-loopback host **refuses to start** unless
   `mcp.auth.tokens` is configured.
+- On a non-loopback bind, every request (REST and MCP transports) requires a
+  valid `Authorization: Bearer` token matching `mcp.auth.tokens`.
 
 ## Config
 
@@ -26,8 +28,10 @@ Raw `token` values in config are hashed at load time; prefer storing only
 
 ## Enforcement
 
-- REST: `Authorization: Bearer …` via `BearerAuthMiddleware`
-- Services: workspace/source allowlists on `Principal`
-- MCP stdio remains local-anonymous; HTTP MCP shares the same bind guard
+- HTTP (REST `/api/v1` and MCP `/mcp`, `/sse`, `/messages/`): same
+  `BearerAuthMiddleware` on the Starlette app
+- Services and retrieval: workspace/source allowlists on `Principal` for
+  list/get workspace, sources, search, documents, and index status
+- MCP stdio remains local-anonymous
 
 `/health` and `/metrics` stay reachable without a bearer token for probes.

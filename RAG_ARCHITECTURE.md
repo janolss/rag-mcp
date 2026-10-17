@@ -5,14 +5,13 @@ implementation lives in this package (`rag-mcp`).
 
 ## Runtime decision
 
-The multi-workspace evolution keeps the existing Python stack (MCP SDK,
-Starlette/Uvicorn, Qdrant, Pydantic, Ruff). See
-[docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md).
+The stack is Python 3.10+ (MCP SDK, Starlette/Uvicorn, Qdrant, Pydantic, Ruff).
+See [docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md).
 
-Application adapters (MCP/HTTP) will share service protocols defined in
-`rag/services/contracts.py`. Concrete multi-workspace services land as those
-implementations are added; this package currently remains a single-workspace
-RAG MCP server.
+MCP and HTTP adapters share `rag.services.ServiceApp` (protocols in
+`rag/services/contracts.py`). Workspaces come from optional
+`workspace_manifests` in config, or a synthetic legacy workspace derived from
+`index.*` when manifests are omitted.
 
 ## Goal
 
@@ -25,11 +24,12 @@ Help an MCP-compatible agent answer:
 ## Pipeline
 
 ```text
-configured knowledge + code + optional lis globs
-        → chunk (+ requirement_ids, start/end line; LIS frontmatter → payload)
+workspace sources (manifests and/or index.* globs)
+        → adapters (markdown/filesystem; optional pdf/docx)
+        → chunk (+ requirement_ids, line ranges; LIS frontmatter → payload)
         → embeddings (OpenAI-compatible or Ollama HTTP)
-        → Qdrant (local file by default; server for teams)
-        → MCP tools / resources / prompts (registered per mcp.capabilities)
+        → Qdrant (+ optional SQLite FTS5 lexical index)
+        → MCP tools / resources / prompts + REST /api/v1
 ```
 
 Provider-agnostic embeddings: configure `embedding.base_url` + `model` against
@@ -37,8 +37,19 @@ Ollama, LM Studio, Paddock, or any OpenAI-compatible `/v1/embeddings` server.
 Native Ollama uses `embedding.provider: ollama`.
 
 Sources, capabilities, app labels, collection name, requirement ID patterns, MCP
-instructions, and transport are **config-driven** (`config.yaml` /
+instructions, transport, and auth are **config-driven** (`config.yaml` /
 `config.example.yaml`). Priority: CLI flags > `RAG_*` env vars > YAML > defaults.
+
+### Workspaces
+
+- Zero or more YAML manifests via `workspace_manifests` (see
+  [docs/workspace-manifest.md](docs/workspace-manifest.md)).
+- Empty/omitted manifests → one legacy workspace `id=default` from `index.*`.
+- Isolation is enforced in the vector store filters and via principal
+  allowlists when HTTP auth is active ([docs/access-control.md](docs/access-control.md)).
+- Relationships between workspaces are declared on manifests and used for
+  `scope=related` (see [docs/relationships.md](docs/relationships.md)).
+  `scope=global` stays disabled until an explicit cross-tenant policy exists.
 
 ### Source types
 
@@ -69,24 +80,37 @@ my-workspace/
 `mcp.capabilities.{knowledge,code,lis}` gates:
 
 - which globs are walked at index time
-- which MCP tools (and related prompts) are registered at server start
+- which capability-scoped MCP tools (and related prompts) are registered
 
 Empty/irrelevant tools are not exposed when a capability is off.
 
 ### Tools
 
-- `index_status()` — collection freshness, model, `git_sha`, stale hints
-- `list_sources()` — capabilities, apps, knowledge/code/lis globs, patterns
-- `search_knowledge(query, path_prefix?)` — documentation (if capability on)
-- `search_code(query, app?, path_prefix?)` — source/tests (if capability on)
-- `search_lis(query, doc_type?, process_area?, domain?, status?, path_prefix?)` — LIS
-- `get_context_pack(task, app?)` — structured pack from enabled sources
-- `trace_requirement(requirement, app?)` — ID/text → docs + code (knowledge/code)
-- `impact_of_change(change, app?, path_prefix?)` — impact sections
-- `find_gaps(area, app?)` — heuristic coverage gaps
+Workspace / status (always registered):
 
-Search applies optional **lexical re-rank**
-(`search.vector_weight` / `search.lexical_weight`).
+- `list_workspaces(query?, tags?)`
+- `get_workspace_info(workspace_id)`
+- `get_index_status(workspace_id?, source_id?)` — prefer over legacy `index_status`
+- `index_status()` — legacy freshness text
+- `list_sources(workspace_id?)` — workspace sources, or legacy config summary
+- `search(...)` — service-layer search (`semantic` | `keyword` | `hybrid`)
+- `get_document(source_id, document_id, workspace_id?, start_line?, end_line?)`
+
+Capability-gated:
+
+- `search_knowledge(query, path_prefix?, workspace_id?, top_k?)`
+- `search_code(query, app?, path_prefix?, workspace_id?, top_k?)`
+- `search_lis(query, …filters, workspace_id?, top_k?)`
+- `get_context_pack(task, app?, workspace_id?)`
+- `trace_requirement(requirement, app?, workspace_id?)`
+- `impact_of_change(change, app?, path_prefix?, workspace_id?)`
+- `find_gaps(area, app?, workspace_id?)`
+
+Search modes ([docs/hybrid-search.md](docs/hybrid-search.md)):
+
+- `semantic` — Qdrant vectors (+ optional lexical re-rank of vector candidates)
+- `keyword` — SQLite FTS5
+- `hybrid` — both + reciprocal rank fusion
 
 ### Resources
 
@@ -100,7 +124,7 @@ When knowledge or code is enabled:
 - `change-plan`, `pr-review`, `requirement-coverage`, `onboarding-slice`,
   `regression-check`
 
-### Transports
+### Transports and HTTP API
 
 | `mcp.transport` | How clients connect |
 |-----------------|---------------------|
@@ -109,11 +133,33 @@ When knowledge or code is enabled:
 | `sse` | Legacy SSE: GET `/sse`, POST `/messages/` |
 | `http` | Dual: both `/mcp` and `/sse` on one port |
 
+The same Starlette app also mounts REST `/api/v1` (workspaces, sources, search,
+documents, index status) plus `/health`, `/ready`, `/metrics`. Root `GET /`
+returns a JSON endpoint map.
+
 `npm run rag:mcp:http` starts dual HTTP on `127.0.0.1:8000`.
 `stateless_http: true` (default) helps many URL clients.
-Root `GET /` returns a JSON endpoint map.
 
-Implementation: `rag/mcp_http.py` (uvicorn + Starlette apps from MCP SDK).
+Loopback/stdio use an anonymous principal. Non-loopback binds require
+`mcp.auth.tokens`; bearer auth covers REST and MCP paths. See
+[docs/access-control.md](docs/access-control.md) and
+[docs/http-api.md](docs/http-api.md).
+
+Implementation: `rag/mcp_http.py`, `rag/http_api.py`, `rag/security/`.
+
+### Indexing
+
+- Full rebuild writes to a staging collection then activates
+  ([docs/atomic-indexing.md](docs/atomic-indexing.md)).
+- Partial `index --files` uses inventory/hash registry upserts
+  ([docs/incremental-indexing.md](docs/incremental-indexing.md)).
+- Path security: registered roots, symlink policy, size limits, secret denylist
+  ([docs/path-security.md](docs/path-security.md)).
+- Code chunking: size windows by default; optional tree-sitter for Python/JS/TS
+  when `.[parsers]` is installed.
+- Optional `.[formats]` for PDF/DOCX adapters (pre-synced files under a root).
+
+The MCP server does not reindex on start.
 
 ### Commands
 
@@ -129,39 +175,47 @@ From the package root (after venv setup):
 - `npm run rag:test`
 - `npm run package` — build `dist/rag-mcp.zip`
 
-Full index recreates the collection. Partial `--files` deletes+upserts points for
-those paths only. The MCP server does not reindex on start.
-
 ### Team concurrency
 
 - Prefer `qdrant.mode: server` + Compose when multiple agents share an index
 - Index via CLI/CI; MCP clients are read-only consumers
-- Use `index_status.git_sha` to detect stale indexes vs the working tree
+- Use `get_index_status` / `index_status.git_sha` to detect stale indexes
 - Do not run two processes against `qdrant.mode: local` (stdio MCP + HTTP MCP + index)
 
 ## Follow-ups (not implemented)
 
-- Sparse/BM25 hybrid (beyond lexical re-rank of vector candidates)
-- AST-aware TypeScript chunking
-- Full git-diff driven incremental indexing
-- Knowledge-graph relations between chunks
+- Sparse/BM25 lexical scoring inside Qdrant (keyword path uses SQLite FTS5 today)
+- Knowledge-graph relations between chunks (workspace relationships exist;
+  chunk-level graphs do not)
 - LIS compliance workflow tools (applicable rules / checklist) — discovery via
   `search_lis` only in the current surface
-- Built-in PDF/Office → markdown sync for LIS (index a pre-synced mirror instead)
+- Built-in remote LIS sync (index a pre-synced local mirror; optional pdf/docx
+  extractors only)
 
 ## Layout
 
 ```text
 rag-mcp/
-  rag/                 # config, embeddings, store, indexer, retrieval, MCP
+  rag/
     mcp_server.py      # tool registration + entry
     mcp_http.py        # HTTP / SSE / dual transport
-    mcp_prompts.py
-    indexer/           # walk, chunk, frontmatter, metadata, run
-    retrieval/         # search, context_pack, trace, impact
+    http_api.py        # REST /api/v1 + middleware
+    config.py
+    embeddings.py
+    store.py
+    runtime.py
+    security/          # paths, bearer auth, access policy
+    services/          # ServiceApp (workspaces, search, documents, …)
+    workspaces/        # manifests, registry, legacy adapter
+    domain/            # Workspace / Source models
+    adapters/          # markdown, filesystem, optional pdf/docx
+    indexer/           # walk, chunk, inventory, atomic/incremental run
+    retrieval/         # search, lexical, context_pack, trace, impact
+    relationships/     # workspace relationship expansion
+  docs/
   tests/
   scripts/package.sh
   config.example.yaml
-  docker-compose.qdrant.yml   # optional server mode
+  docker-compose.qdrant.yml
   README.md
 ```

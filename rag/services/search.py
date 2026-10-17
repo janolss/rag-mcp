@@ -9,7 +9,9 @@ from rag.embeddings import EmbeddingClient
 from rag.retrieval import search as retrieval
 from rag.retrieval.fusion import reciprocal_rank_fusion
 from rag.retrieval.lexical import LexicalHit, LexicalIndex, lexical_index_path
-from rag.services.errors import ValidationError
+from rag.security.access import AccessDenied, authorize_source, authorize_workspace
+from rag.security.http_auth import require_principal
+from rag.services.errors import ServiceError, ValidationError
 from rag.services.resolve import resolve_workspace_id
 from rag.store import VectorStore
 
@@ -69,6 +71,12 @@ class SearchServiceImpl:
 
         resolved = resolve_workspace_id(self.config, workspace_id, required=True)
         assert resolved is not None
+        principal = require_principal()
+        try:
+            authorize_workspace(principal, resolved)
+        except AccessDenied as exc:
+            raise ServiceError(str(exc)) from exc
+
         top_k = _DEFAULT_LIMIT if limit is None else int(limit)
         if top_k < 1 or top_k > _MAX_LIMIT:
             raise ValidationError(f"limit must be between 1 and {_MAX_LIMIT}")
@@ -79,6 +87,10 @@ class SearchServiceImpl:
             if len(source_ids) != 1:
                 raise ValidationError("exactly one source_id is supported per search call")
             source_id = source_ids[0]
+            try:
+                authorize_source(principal, source_id)
+            except AccessDenied as exc:
+                raise ServiceError(str(exc)) from exc
 
         if mode == "keyword":
             return self._keyword_search(
