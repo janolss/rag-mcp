@@ -112,13 +112,22 @@ def _hits_for_id(
     type_filter: list[str],
     app_filter: str | None,
     top_k: int,
+    workspace_id: str | None = None,
 ) -> list[Any]:
+    from rag.workspaces import WorkspaceRegistry
+
+    resolved = workspace_id
+    if resolved is None:
+        ids = WorkspaceRegistry.from_config(config).ids()
+        if len(ids) != 1:
+            raise ValueError("workspace_id is required when more than one workspace is registered")
+        resolved = ids[0]
+
     # Prefer exact payload match via scroll; fall back to filtered vector search.
     records = store.scroll_by_requirement_id(
         requirement_id,
         limit=max(top_k * 2, 16),
-        workspace_id="default",
-        allow_legacy=True,
+        workspace_id=resolved,
         type_filter=type_filter,
         app_filter=app_filter,
     )
@@ -131,6 +140,7 @@ def _hits_for_id(
         type_filter=type_filter,
         app_filter=app_filter,
         requirement_id=requirement_id,
+        workspace_id=resolved,
         top_k=top_k,
         score_threshold=0.0,
         store=store,

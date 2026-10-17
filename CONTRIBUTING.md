@@ -15,8 +15,11 @@ Optional formats (PDF/DOCX): `pip install -e ".[dev,parsers,formats]"`.
 With [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync --extra dev --extra parsers
+uv sync --frozen --extra dev --extra parsers
 ```
+
+CI installs from `uv.lock` via `uv sync --frozen`. Prefer uv for reproducible
+local installs; `pip install -e ".[dev,parsers]"` remains supported.
 
 If you move the repo, recreate the venv (relocated `.venv` shebangs break):
 

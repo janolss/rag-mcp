@@ -46,5 +46,5 @@ def test_rejects_model_and_legacy_mismatch(tmp_path: Path):
         vector_size=32,
         collection="c",
     )
-    with pytest.raises(IndexCompatibilityError, match="legacy"):
+    with pytest.raises(IndexCompatibilityError, match="payload_schema_version=0"):
         check_compatibility(legacy, expected)

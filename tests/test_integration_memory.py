@@ -93,30 +93,37 @@ def sample_repo(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def rag_config(tmp_path: Path, sample_repo: Path) -> Config:
-    return Config(
-        embedding=EmbeddingConfig(model="fake-model"),
-        qdrant=QdrantConfig(mode="memory", collection="test_workspace_rag"),
-        index=IndexConfig(
-            repo_root=str(sample_repo),
-            sources="all",
-            chunk_size=800,
-            chunk_overlap=80,
-            status_file=str(tmp_path / "status.json"),
-            knowledge=[
-                "README.md",
-                "docs/**/*.md",
-                ".devdoc/**/*.md",
-            ],
-            code=[
-                "apps/**/*.ts",
-                "apps/**/*.js",
-            ],
-            apps=[
-                AppRule(prefix="apps/web/", name="web"),
-            ],
-            documentation_prefixes=[".devdoc/", "docs/"],
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake-model"),
+            qdrant=QdrantConfig(mode="memory", collection="test_workspace_rag"),
+            index=IndexConfig(
+                repo_root=str(sample_repo),
+                sources="all",
+                chunk_size=800,
+                chunk_overlap=80,
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[
+                    "README.md",
+                    "docs/**/*.md",
+                    ".devdoc/**/*.md",
+                ],
+                code=[
+                    "apps/**/*.ts",
+                    "apps/**/*.js",
+                ],
+                apps=[
+                    AppRule(prefix="apps/web/", name="web"),
+                ],
+                documentation_prefixes=[".devdoc/", "docs/"],
+            ),
+            search=SearchConfig(
+                top_k=5, score_threshold=0.0, vector_weight=0.7, lexical_weight=0.3
+            ),
         ),
-        search=SearchConfig(top_k=5, score_threshold=0.0, vector_weight=0.7, lexical_weight=0.3),
+        tmp_path,
     )
 
 
@@ -289,21 +296,29 @@ status: approved
         encoding="utf-8",
     )
 
-    config = Config(
-        embedding=EmbeddingConfig(model="fake-model"),
-        qdrant=QdrantConfig(mode="memory", collection="test_lis_rag"),
-        index=IndexConfig(
-            repo_root=str(sample_repo),
-            sources="lis",
-            chunk_size=800,
-            chunk_overlap=80,
-            status_file=str(tmp_path / "lis_status.json"),
-            knowledge=[],
-            code=[],
-            lis=[str(tmp_path / "lis-knowledge" / "docs" / "**" / "*.md")],
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake-model"),
+            qdrant=QdrantConfig(mode="memory", collection="test_lis_rag"),
+            index=IndexConfig(
+                repo_root=str(sample_repo),
+                sources="lis",
+                chunk_size=800,
+                chunk_overlap=80,
+                status_file=str(tmp_path / "lis_status.json"),
+                knowledge=[],
+                code=[],
+                lis=[str(tmp_path / "lis-knowledge" / "docs" / "**" / "*.md")],
+            ),
+            search=SearchConfig(
+                top_k=5, score_threshold=0.0, vector_weight=0.7, lexical_weight=0.3
+            ),
+            mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=False, code=False, lis=True)),
         ),
-        search=SearchConfig(top_k=5, score_threshold=0.0, vector_weight=0.7, lexical_weight=0.3),
-        mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=False, code=False, lis=True)),
+        tmp_path,
+        manifest_name="lis_workspace.yaml",
     )
 
     chunks = build_chunks(config)

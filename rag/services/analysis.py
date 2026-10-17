@@ -9,7 +9,7 @@ from rag.retrieval.impact import find_gaps as _find_gaps
 from rag.retrieval.impact import impact_of_change as _impact_of_change
 from rag.retrieval.trace import trace_requirement as _trace_requirement
 from rag.security.access import AccessDenied
-from rag.services.errors import ServiceError
+from rag.services.errors import ForbiddenError
 from rag.store import VectorStore
 
 
@@ -89,4 +89,4 @@ class AnalysisServiceImpl:
                 **kwargs,
             )
         except AccessDenied as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ForbiddenError(str(exc)) from exc

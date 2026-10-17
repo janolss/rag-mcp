@@ -48,19 +48,32 @@ def test_resolve_instructions_appends_lis_block():
     assert "search_lis" in text
 
 
-def test_create_mcp_server_registers_search_lis_only_when_enabled():
+def test_create_mcp_server_registers_search_lis_only_when_enabled(tmp_path):
+    from pathlib import Path
+
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    tmp_path = Path(tmp_path)
     base = dict(
         qdrant=QdrantConfig(mode="memory", collection="cap_test"),
-        index=IndexConfig(sources="all", lis=["lis/**/*.md"]),
+        index=IndexConfig(repo_root=str(tmp_path), sources="all", lis=["lis/**/*.md"]),
     )
 
-    off = Config(
-        **base,
-        mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=True, code=True, lis=False)),
+    off = with_workspace_manifest(
+        Config(
+            **base,
+            mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=True, code=True, lis=False)),
+        ),
+        tmp_path,
+        manifest_name="off.yaml",
     )
-    on = Config(
-        **base,
-        mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=False, code=False, lis=True)),
+    on = with_workspace_manifest(
+        Config(
+            **base,
+            mcp=McpConfig(capabilities=CapabilitiesConfig(knowledge=False, code=False, lis=True)),
+        ),
+        tmp_path,
+        manifest_name="on.yaml",
     )
 
     async def names(config: Config) -> set[str]:

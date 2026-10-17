@@ -18,7 +18,7 @@ def change_plan_text(task: str, app: str = "") -> str:
 Required tool sequence:
 1) list_workspaces (if workspace_id is unclear)
 2) get_workspace_info / list_sources(workspace_id) (if app or source scope unclear)
-3) get_index_status (or index_status); warn if stale
+3) get_index_status; warn if stale
 4) get_context_pack(task{app_arg})
 5) impact_of_change(task{app_arg})
 6) trace_requirement for any requirement IDs found in the docs hits
@@ -45,7 +45,7 @@ Change summary / diff description:
 
 Required tool sequence:
 1) list_workspaces (if workspace_id is unclear)
-2) get_index_status (or index_status); warn if stale
+2) get_index_status; warn if stale
 3) impact_of_change(change_summary)
 4) trace_requirement for each requirement ID mentioned in the summary or docs hits
 5) find_gaps on the affected area

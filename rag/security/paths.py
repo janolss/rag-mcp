@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,27 @@ class PathSecurityPolicy:
             secret_suffixes=self.secret_suffixes,
             registered_roots=tuple(str(Path(root).resolve()) for root in roots),
         )
+
+
+def path_security_policy_from_config(config: Any) -> PathSecurityPolicy:
+    """Build a policy from defaults plus ``index.extra_secret_*`` lists."""
+    index = getattr(config, "index", None)
+    extra_names = getattr(index, "extra_secret_names", None) or ()
+    extra_suffixes = getattr(index, "extra_secret_suffixes", None) or ()
+    names = DEFAULT_SECRET_NAMES | frozenset(
+        str(n).strip().lower() for n in extra_names if str(n).strip()
+    )
+    suffixes = DEFAULT_SECRET_SUFFIXES | frozenset(
+        _normalize_suffix(str(s)) for s in extra_suffixes if str(s).strip()
+    )
+    return PathSecurityPolicy(secret_names=names, secret_suffixes=suffixes)
+
+
+def _normalize_suffix(value: str) -> str:
+    text = value.strip().lower()
+    if text and not text.startswith("."):
+        return f".{text}"
+    return text
 
 
 def _is_relative_to(path: Path, root: Path) -> bool:

@@ -64,14 +64,16 @@ cp config.example.yaml config.yaml
 
 Edit at least:
 
+- `workspace_manifests` — at least one `workspace.yaml` (see `examples/workspaces/local-default.yaml`)
 - `embedding.*` — your local embedding endpoint
 - `qdrant.collection` — unique name per workspace
 - `index.repo_root` — default `".."` (parent workspace)
-- `index.knowledge` / `index.code` / optional `index.lis` — globs (LIS may be absolute)
 - `index.apps` — optional path-prefix → app labels for `search_code(app=...)`
 - `mcp.capabilities` — which surfaces are active (`knowledge` / `code` / `lis`)
 - `mcp.name` / `mcp.instructions` — how the agent should use the tools
 - `mcp.transport` — `stdio` (default) or HTTP for URL clients (see below)
+
+Health check: `python -m rag.cli doctor` (use `--skip-network` offline).
 
 4. Index (full rebuild):
 
@@ -91,27 +93,30 @@ See [docs/incremental-indexing.md](docs/incremental-indexing.md),
 [acceptance matrix](docs/acceptance-matrix.md). After large refactors or schema
 changes, prefer a full `index`.
 
-5. Add an MCP server (use **absolute** paths; no spaces in paths):
+5. Add an MCP server (use **absolute** paths; no spaces in paths).
 
-```json
+From the package root, print a ready-made snippet:
+
+```bash
+ROOT="$(pwd -P)"
+cat <<EOF
 {
   "mcpServers": {
     "workspace-rag": {
-      "command": "/ABS/PATH/my-workspace/rag-mcp/.venv/bin/python",
-      "args": ["/ABS/PATH/my-workspace/rag-mcp/run_mcp.py"],
-      "env": {
-        "RAG_CONFIG": "config.yaml"
-      }
+      "command": "$ROOT/.venv/bin/python",
+      "args": ["$ROOT/run_mcp.py"],
+      "env": { "RAG_CONFIG": "config.yaml" }
     }
   }
 }
+EOF
 ```
 
 Verify:
 
 ```bash
-ls /ABS/PATH/my-workspace/rag-mcp/.venv/bin/python
-/ABS/PATH/my-workspace/rag-mcp/.venv/bin/python /ABS/PATH/my-workspace/rag-mcp/run_mcp.py
+ls "$ROOT/.venv/bin/python"
+"$ROOT/.venv/bin/python" "$ROOT/run_mcp.py"
 ```
 
 The second command should start the MCP server and wait on stdio — stop with Ctrl+C.
@@ -260,11 +265,16 @@ export QDRANT_API_KEY="$(openssl rand -hex 24)"
 npm run rag:up
 ```
 
+Optional local embeddings: run Ollama separately (`ollama serve` + pull your
+embedding model) and point `embedding.provider: ollama` at `http://localhost:11434`.
+A combined Compose profile for Qdrant+Ollama is not shipped; keep the two processes
+explicit for now.
+
 Ownership model:
 
 - One CI job or person runs `rag:index` (or `index --files` for small updates)
 - Agents use MCP **read-only** (search / trace / impact); they do not reindex
-- Call `list_workspaces` first when the target workspace is unclear, then `get_index_status` / `index_status` and compare `git_sha` before relying on results in review
+- Call `list_workspaces` first when the target workspace is unclear, then `get_index_status` and compare `git_sha` before relying on results in review
 
 ### Capabilities and LIS
 
@@ -290,9 +300,8 @@ Always registered (workspace / service layer):
 |------|---------|
 | `list_workspaces` | List registered workspaces (`query`, `tags`) |
 | `get_workspace_info` | Workspace metadata, sources, relationships |
-| `list_sources` | With `workspace_id`: that workspace's sources; without: legacy config summary (capabilities, apps, globs, patterns) |
-| `get_index_status` | Structured status (optional `workspace_id` / `source_id`); prefer over legacy `index_status` |
-| `index_status` | Legacy freshness wrapper (model, `git_sha`, stale hints) |
+| `list_sources` | With `workspace_id`: that workspace's sources; without: sources grouped by visible workspaces |
+| `get_index_status` | Structured status (optional `workspace_id` / `source_id`) |
 | `search` | Workspace-scoped search (`semantic` / `keyword` / `hybrid`; optional `source_ids`, `document_types`, `path_prefix`) |
 | `get_document` | Read a registered document (optional line range) |
 
@@ -316,7 +325,7 @@ Resources always return JSON with an `ok` envelope (`ok: true` + fields, or `ok:
 
 | URI | Content |
 |-----|---------|
-| `rag://status` | Index status payload (`ok` + same fields as `index_status` tool) |
+| `rag://status` | Index status payload (`ok` + same fields as `get_index_status`) |
 | `rag://sources` | Sources payload (`ok` + same fields as `list_sources` tool) |
 
 ### Prompts

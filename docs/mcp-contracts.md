@@ -9,22 +9,23 @@ Workspace-aware tools sit on a shared application service layer
 |------|---------|
 | `list_workspaces` | List registered workspaces (`query`, `tags`) |
 | `get_workspace_info` | Detailed workspace + sources + relationships |
-| `list_sources` | With `workspace_id`: sources for that workspace; without: config summary |
+| `list_sources` | With `workspace_id`: sources for that workspace; without: sources grouped by visible workspaces |
 | `search` | Structured hits via `SearchService` (`semantic` \| `keyword` \| `hybrid`) |
 | `get_document` | Secure file read with optional line range |
 | `get_index_status` | Structured status with optional workspace/source |
-| `index_status` | Same status payload as JSON text (legacy name) |
 | `search_knowledge` / `search_code` / `search_lis` | Capability-gated text search via services |
 | `get_context_pack` / `trace_requirement` / `impact_of_change` / `find_gaps` | Analysis tools via `ServiceApp.analysis` |
+
+Resources `rag://status` and `rag://sources` use the same services (JSON `ok` envelope).
 
 Convenience search tools keep **text** hit formatting; prefer `search` for
 structured multi-workspace clients.
 
 ## Workspace resolution
 
-- Exactly one workspace (synthetic `default` **or** a single manifest id such as
-  `lk_apps`): `workspace_id` may be omitted and is inferred.
+- Exactly one registered workspace: `workspace_id` may be omitted and is inferred.
 - Multiple workspaces: callers must pass `workspace_id` or tools return an error.
+- Workspaces come from `workspace_manifests` (see [workspace-manifest.md](workspace-manifest.md)).
 
 ## Client migration
 

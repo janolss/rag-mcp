@@ -189,9 +189,13 @@ def build_chunks_for_files(
         if not raw_norm:
             continue
         path = Path(raw_norm)
-        from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
+        from rag.security.paths import (
+            SecurePathError,
+            assert_within_roots,
+            path_security_policy_from_config,
+        )
 
-        policy = PathSecurityPolicy()
+        policy = path_security_policy_from_config(config)
         roots = [
             repo_root.resolve(),
             *[r.resolve() for r in _registered_extra_roots(config, workspace_id=workspace.id)],

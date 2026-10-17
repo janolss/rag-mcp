@@ -253,12 +253,11 @@ def retire_deleted_document(
         source_id=record.source_id,
         document_id=record.document_id,
     )
-    # Fallback for legacy points keyed only by file path.
-    store.delete_by_files(
-        [record.path or record.document_id],
-        workspace_id=record.workspace_id,
-        allow_legacy=True,
-    )
+    if record.path or record.document_id:
+        store.delete_by_files(
+            [record.path or record.document_id],
+            workspace_id=record.workspace_id,
+        )
     registry.mark_deleted(record.workspace_id, record.source_id, record.document_id)
     logger.info("Retired deleted document %s", record.document_id)
 

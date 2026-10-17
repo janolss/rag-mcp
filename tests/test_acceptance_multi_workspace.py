@@ -15,17 +15,22 @@ from rag.workspaces.registry import WorkspaceRegistry
 
 
 def _config(tmp_path: Path) -> Config:
-    return Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="accept"),
-        index=IndexConfig(
-            repo_root=str(tmp_path),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=[],
-            code=[],
-            sources="knowledge",
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="accept"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0),
         ),
-        search=SearchConfig(score_threshold=0.0),
+        tmp_path,
     )
 
 
@@ -70,9 +75,12 @@ def test_acceptance_multi_workspace_requires_id(tmp_path: Path, monkeypatch):
             )
 
     monkeypatch.setattr("rag.services.resolve.WorkspaceRegistry", FakeRegistry)
+    monkeypatch.setattr("rag.indexer.source_model.WorkspaceRegistry", FakeRegistry)
     app = ServiceApp(config)
     with pytest.raises(WorkspaceRequiredError):
-        app.sources.list_sources()
+        app.search.search(query="x")
+    overview = app.sources.list_sources()
+    assert {row["workspace_id"] for row in overview} == {"one", "two"}
     assert app.workspaces.list_workspaces()
 
 

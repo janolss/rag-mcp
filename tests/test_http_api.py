@@ -9,21 +9,25 @@ from rag.config import Config, EmbeddingConfig, IndexConfig, QdrantConfig, Searc
 from rag.http_api import create_api_app
 from rag.services import ServiceApp
 from starlette.testclient import TestClient
+from tests.workspace_fixtures import with_workspace_manifest
 
 
 def _config(tmp_path: Path, repo: Path | None = None) -> Config:
     root = repo or tmp_path
-    return Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="http_api"),
-        index=IndexConfig(
-            repo_root=str(root),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=["docs/**/*.md"],
-            code=[],
-            sources="knowledge",
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="http_api"),
+            index=IndexConfig(
+                repo_root=str(root),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=["docs/**/*.md"],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0),
         ),
-        search=SearchConfig(score_threshold=0.0),
+        tmp_path,
     )
 
 

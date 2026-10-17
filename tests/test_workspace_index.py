@@ -182,21 +182,26 @@ def test_delete_by_workspace_keeps_peer_vectors(tmp_path: Path):
         store.close()
 
 
-def test_legacy_build_chunks_still_uses_default_workspace(tmp_path: Path):
+def test_manifest_build_chunks_uses_default_workspace(tmp_path: Path):
+    from tests.workspace_fixtures import with_workspace_manifest
+
     repo = tmp_path / "repo"
     docs = repo / "docs"
     docs.mkdir(parents=True)
     (docs / "a.md").write_text("# Doc\n\nhello\n", encoding="utf-8")
-    config = Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="legacy"),
-        index=IndexConfig(
-            repo_root=str(repo),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=["docs/**/*.md"],
-            code=[],
-            sources="knowledge",
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="ws_default"),
+            index=IndexConfig(
+                repo_root=str(repo),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=["docs/**/*.md"],
+                code=[],
+                sources="knowledge",
+            ),
         ),
+        tmp_path,
     )
     chunks = build_chunks(config)
     assert chunks

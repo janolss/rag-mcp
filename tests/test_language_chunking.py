@@ -32,6 +32,10 @@ def test_python_syntax_error_falls_back():
 
 
 def test_typescript_function_chunks():
+    import pytest
+
+    pytest.importorskip("tree_sitter")
+    pytest.importorskip("tree_sitter_typescript")
     source = """
 import { foo } from './foo';
 

@@ -99,6 +99,7 @@ async def run_http_async(mcp: MCPServer, config: Config) -> None:
         {
             "tokens": list(config.mcp.auth.tokens),
             "require_auth_for_public_bind": config.mcp.auth.require_auth_for_public_bind,
+            "require_auth_always": config.mcp.auth.require_auth_always,
         }
     )
     assert_bind_allowed(host, policy, transport=transport)

@@ -52,12 +52,14 @@ class AccessPolicy:
     """
     Auth profile.
 
-    Loopback/stdio may use anonymous access. Non-loopback binds require at least
-    one token when ``require_auth_for_public_bind`` is True (default).
+    Loopback/stdio may use anonymous access unless ``require_auth_always`` is set.
+    Non-loopback binds require at least one token when
+    ``require_auth_for_public_bind`` is True (default).
     """
 
     tokens: tuple[TokenRecord, ...] = ()
     require_auth_for_public_bind: bool = True
+    require_auth_always: bool = False
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any] | None) -> AccessPolicy:
@@ -83,6 +85,7 @@ class AccessPolicy:
         return cls(
             tokens=tuple(tokens),
             require_auth_for_public_bind=bool(data.get("require_auth_for_public_bind", True)),
+            require_auth_always=bool(data.get("require_auth_always", False)),
         )
 
     def authenticate(self, bearer_token: str | None) -> Principal | None:

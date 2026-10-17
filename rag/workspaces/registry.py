@@ -6,7 +6,6 @@ from collections.abc import Iterable, Sequence
 
 from rag.config import Config
 from rag.domain.models import Workspace
-from rag.workspaces.legacy import workspace_from_config
 
 
 class WorkspaceNotFoundError(KeyError):
@@ -15,6 +14,10 @@ class WorkspaceNotFoundError(KeyError):
 
 class DuplicateWorkspaceError(ValueError):
     """Raised when registering a workspace ID that already exists."""
+
+
+class WorkspaceConfigError(RuntimeError):
+    """Raised when workspace_manifests is missing or empty."""
 
 
 class WorkspaceRegistry:
@@ -27,12 +30,17 @@ class WorkspaceRegistry:
 
     @classmethod
     def from_config(cls, config: Config) -> WorkspaceRegistry:
-        """Create a registry from manifests, or the legacy default workspace."""
-        if config.workspace_manifests:
-            from rag.workspaces.manifest import load_manifests
+        """Create a registry from ``workspace_manifests`` (required)."""
+        paths = [p for p in (config.workspace_manifests or []) if str(p).strip()]
+        if not paths:
+            raise WorkspaceConfigError(
+                "workspace_manifests is required: add at least one workspace.yaml "
+                "path in config (see docs/workspace-manifest.md and "
+                "docs/legacy-migration.md)"
+            )
+        from rag.workspaces.manifest import load_manifests
 
-            return cls(load_manifests(config.workspace_manifests))
-        return cls([workspace_from_config(config)])
+        return cls(load_manifests(paths))
 
     def register(self, workspace: Workspace) -> None:
         workspace_id = (workspace.id or "").strip()

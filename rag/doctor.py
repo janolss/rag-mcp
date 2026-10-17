@@ -12,8 +12,11 @@ from typing import Literal
 from rag.config import PACKAGE_ROOT, Config
 from rag.embeddings import EmbeddingClient
 from rag.indexer.git_info import git_head_sha
+from rag.indexer.identity import PAYLOAD_SCHEMA_VERSION
+from rag.indexer.index_manifest import current_manifest, read_manifest
 from rag.indexer.run import status_report
 from rag.store import QdrantLockError, VectorStore
+from rag.workspaces.registry import WorkspaceConfigError, WorkspaceRegistry
 
 CheckStatus = Literal["ok", "warn", "fail"]
 
@@ -84,16 +87,57 @@ def check_config(config: Config) -> CheckResult:
     )
 
 
+def check_manifests(config: Config) -> CheckResult:
+    paths = [p for p in (config.workspace_manifests or []) if str(p).strip()]
+    if not paths:
+        return CheckResult(
+            "manifests",
+            "fail",
+            "workspace_manifests is empty; add at least one workspace.yaml "
+            "(see docs/workspace-manifest.md)",
+        )
+    try:
+        registry = WorkspaceRegistry.from_config(config)
+    except WorkspaceConfigError as exc:
+        return CheckResult("manifests", "fail", str(exc))
+    except Exception as exc:
+        return CheckResult("manifests", "fail", f"manifest load failed: {exc}")
+    ids = registry.ids()
+    return CheckResult(
+        "manifests",
+        "ok",
+        f"{len(ids)} workspace(s): {', '.join(ids)}",
+    )
+
+
 def check_qdrant(config: Config) -> CheckResult:
     mode = config.qdrant.mode
     if mode == "memory":
         return CheckResult("qdrant", "ok", "mode=memory")
     if mode == "server":
         key = "set" if (config.qdrant.api_key or "").strip() else "unset"
+        try:
+            store = VectorStore(config, connect_retries=1, connect_retry_delay_ms=0)
+            exists = store.collection_exists()
+            store.close()
+        except Exception as exc:
+            return CheckResult(
+                "qdrant",
+                "fail",
+                f"mode=server url={config.qdrant.url} api_key={key}; connect failed: {exc}",
+            )
+        if not exists:
+            return CheckResult(
+                "qdrant",
+                "warn",
+                f"mode=server url={config.qdrant.url} connected; collection "
+                f"{config.qdrant.collection!r} missing (run: python -m rag.cli index)",
+            )
         return CheckResult(
             "qdrant",
             "ok",
-            f"mode=server url={config.qdrant.url} api_key={key}",
+            f"mode=server url={config.qdrant.url} api_key={key} "
+            f"collection={config.qdrant.collection!r}",
         )
     if mode != "local":
         return CheckResult("qdrant", "fail", f"unsupported mode {mode!r}")
@@ -126,6 +170,39 @@ def check_embedding(config: Config, *, skip_network: bool) -> CheckResult:
     return CheckResult("embedding", "ok" if ok else "fail", detail)
 
 
+def check_index_manifest(config: Config) -> CheckResult:
+    path = config.status_file_path.with_name("index_manifest.json")
+    existing = read_manifest(path)
+    if existing is None:
+        return CheckResult(
+            "index_manifest",
+            "warn",
+            f"missing {path.name}; run a full index to create it",
+        )
+    expected = current_manifest(
+        embedding_model=config.embedding.model,
+        vector_size=existing.vector_size or 0,
+        collection=config.qdrant.collection,
+    )
+    notes: list[str] = [
+        f"payload_schema_version={existing.payload_schema_version}",
+        f"model={existing.embedding_model!r}",
+    ]
+    status: CheckStatus = "ok"
+    if existing.payload_schema_version != PAYLOAD_SCHEMA_VERSION:
+        status = "warn"
+        notes.append(
+            f"expected payload_schema_version={PAYLOAD_SCHEMA_VERSION}; full reindex required"
+        )
+    if existing.embedding_model and existing.embedding_model != expected.embedding_model:
+        status = "warn"
+        notes.append(f"config model={expected.embedding_model!r}")
+    if existing.collection and existing.collection != config.qdrant.collection:
+        status = "warn"
+        notes.append(f"manifest collection={existing.collection!r}")
+    return CheckResult("index_manifest", status, "; ".join(notes))
+
+
 def check_index_freshness(config: Config) -> CheckResult:
     try:
         report = status_report(config)
@@ -153,16 +230,47 @@ def check_index_freshness(config: Config) -> CheckResult:
     return CheckResult("index", status, "; ".join(notes))
 
 
+def check_source_globs(config: Config) -> CheckResult:
+    try:
+        registry = WorkspaceRegistry.from_config(config)
+    except Exception as exc:
+        return CheckResult("sources", "fail", f"cannot load workspaces: {exc}")
+
+    from rag.indexer.source_model import discover_workspace_files
+
+    parts: list[str] = []
+    status: CheckStatus = "ok"
+    for workspace_id in registry.ids():
+        try:
+            files = discover_workspace_files(config, workspace_id=workspace_id)
+        except Exception as exc:
+            status = "warn"
+            parts.append(f"{workspace_id}: walk failed ({exc})")
+            continue
+        by_bucket: dict[str, int] = {}
+        for _path, _sid, bucket, _identity in files:
+            by_bucket[bucket or "unknown"] = by_bucket.get(bucket or "unknown", 0) + 1
+        if not files:
+            status = "warn"
+            parts.append(f"{workspace_id}: 0 files matched")
+        else:
+            detail = ", ".join(f"{k}={v}" for k, v in sorted(by_bucket.items()))
+            parts.append(f"{workspace_id}: {len(files)} files ({detail})")
+    return CheckResult("sources", status, "; ".join(parts) if parts else "no workspaces")
+
+
 def run_doctor(config: Config, *, skip_network: bool = False) -> list[CheckResult]:
-    results = [
+    return [
         check_python(),
         check_imports(),
         check_config(config),
+        check_manifests(config),
         check_qdrant(config),
         check_embedding(config, skip_network=skip_network),
+        check_index_manifest(config),
         check_index_freshness(config),
+        check_source_globs(config),
     ]
-    return results
 
 
 def doctor_exit_code(results: list[CheckResult]) -> int:

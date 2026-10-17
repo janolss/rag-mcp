@@ -28,17 +28,22 @@ class BoomEmbedder(FakeEmbedder):
 
 
 def _config(tmp_path: Path, repo: Path) -> Config:
-    return Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="inc"),
-        index=IndexConfig(
-            repo_root=str(repo),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=["docs/**/*.md"],
-            code=[],
-            sources="knowledge",
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="inc"),
+            index=IndexConfig(
+                repo_root=str(repo),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=["docs/**/*.md"],
+                code=[],
+                sources="knowledge",
+            ),
+            search=SearchConfig(score_threshold=0.0),
         ),
-        search=SearchConfig(score_threshold=0.0),
+        tmp_path,
     )
 
 

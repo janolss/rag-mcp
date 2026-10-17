@@ -22,19 +22,35 @@ def test_check_python_and_imports_ok():
 
 
 def test_run_doctor_skip_network(tmp_path: Path):
-    config = Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="doctor"),
-        index=IndexConfig(
-            repo_root=str(tmp_path),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=[],
-            code=[],
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="doctor"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[],
+                code=[],
+            ),
         ),
+        tmp_path,
     )
     results = run_doctor(config, skip_network=True)
     names = {r.name for r in results}
-    assert {"python", "imports", "config", "qdrant", "embedding", "index"} <= names
+    assert {
+        "python",
+        "imports",
+        "config",
+        "manifests",
+        "qdrant",
+        "embedding",
+        "index_manifest",
+        "index",
+        "sources",
+    } <= names
+    assert next(r for r in results if r.name == "manifests").status == "ok"
     emb = next(r for r in results if r.name == "embedding")
     assert emb.status == "ok"
     assert "skipped" in emb.message
@@ -52,10 +68,14 @@ def test_check_embedding_skip(tmp_path: Path):
 
 def test_cli_doctor_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from rag import cli
+    from tests.workspace_fixtures import write_workspace_manifest
 
+    manifest = write_workspace_manifest(tmp_path / "ws.yaml", root=tmp_path)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
-        "qdrant:\n  mode: memory\n  collection: doctor_cli\nembedding:\n  model: fake\n",
+        f"workspace_manifests:\n  - {manifest}\n"
+        "qdrant:\n  mode: memory\n  collection: doctor_cli\nembedding:\n  model: fake\n"
+        f"index:\n  repo_root: {tmp_path}\n  status_file: {tmp_path / 'status.json'}\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)

@@ -11,6 +11,8 @@
   `kubeconfig`, and common private key basenames (`id_rsa`, `id_ed25519`, …).
 - Secret-like suffixes: `.pem`, `.key`, `.p12`, `.pfx`, `.jks`, `.keystore`,
   `.ovpn`, `.p8`.
+- Operators may extend the denylist via `index.extra_secret_names` and
+  `index.extra_secret_suffixes` in `config.yaml` (unioned with the defaults).
 - Default max file size is 2 MiB.
 - Allowed suffixes are limited to common text/code/doc extensions.
 

@@ -23,6 +23,7 @@ from rag.security.access import AccessDenied, AccessPolicy
 from rag.security.http_auth import BearerAuthMiddleware
 from rag.security.http_limits import MaxBodyMiddleware, RateLimitMiddleware
 from rag.services import (
+    ForbiddenError,
     NotFoundError,
     ServiceApp,
     ServiceError,
@@ -39,18 +40,14 @@ CORRELATION_HEADER = "x-correlation-id"
 def _error_response(exc: Exception, *, status: int | None = None) -> JSONResponse:
     if isinstance(exc, NotFoundError):
         code, http_status = "not_found", 404
-    elif isinstance(exc, (AccessDenied, PermissionError)):
+    elif isinstance(exc, (AccessDenied, ForbiddenError, PermissionError)):
         code, http_status = "forbidden", 403
     elif isinstance(exc, WorkspaceRequiredError):
         code, http_status = "workspace_required", 400
     elif isinstance(exc, (ValidationError, PydanticValidationError)):
         code, http_status = "validation_error", 400
     elif isinstance(exc, ServiceError):
-        # Authorization denials raised as ServiceError from services.
-        if "cannot access" in str(exc):
-            code, http_status = "forbidden", 403
-        else:
-            code, http_status = "service_error", 400
+        code, http_status = "service_error", 400
     else:
         logger.exception("Unhandled API error")
         code, http_status = "internal_error", 500
@@ -252,9 +249,15 @@ def install_http_middleware(app: Any, config: Config) -> None:
         {
             "tokens": list(config.mcp.auth.tokens),
             "require_auth_for_public_bind": config.mcp.auth.require_auth_for_public_bind,
+            "require_auth_always": config.mcp.auth.require_auth_always,
         }
     )
-    app.add_middleware(BearerAuthMiddleware, policy=policy, bind_host=config.mcp.host)
+    app.add_middleware(
+        BearerAuthMiddleware,
+        policy=policy,
+        bind_host=config.mcp.host,
+        require_auth_always=config.mcp.auth.require_auth_always,
+    )
     app.add_middleware(CorrelationMiddleware)
     app.add_middleware(
         MaxBodyMiddleware,
@@ -264,6 +267,7 @@ def install_http_middleware(app: Any, config: Config) -> None:
         RateLimitMiddleware,
         rate_limit_per_minute=int(getattr(config.mcp, "rate_limit_per_minute", 120) or 0),
         bind_host=config.mcp.host,
+        require_auth_always=config.mcp.auth.require_auth_always,
     )
 
 

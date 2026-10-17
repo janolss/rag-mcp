@@ -9,9 +9,8 @@ The stack is Python 3.10+ (MCP SDK, Starlette/Uvicorn, Qdrant, Pydantic, Ruff).
 See [docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md).
 
 MCP and HTTP adapters share `rag.services.ServiceApp` (protocols in
-`rag/services/contracts.py`). Workspaces come from optional
-`workspace_manifests` in config, or a synthetic legacy workspace derived from
-`index.*` when manifests are omitted.
+`rag/services/contracts.py`). Workspaces come from required
+`workspace_manifests` entries (at least one `workspace.yaml`).
 
 ## Goal
 
@@ -24,7 +23,7 @@ Help an MCP-compatible agent answer:
 ## Pipeline
 
 ```text
-workspace sources (manifests and/or index.* globs)
+workspace sources (manifest roots)
         → adapters (markdown/filesystem; optional pdf/docx)
         → chunk (+ requirement_ids, line ranges; LIS frontmatter → payload)
         → embeddings (OpenAI-compatible or Ollama HTTP)
@@ -42,9 +41,8 @@ instructions, transport, and auth are **config-driven** (`config.yaml` /
 
 ### Workspaces
 
-- Zero or more YAML manifests via `workspace_manifests` (see
+- One or more YAML manifests via `workspace_manifests` (see
   [docs/workspace-manifest.md](docs/workspace-manifest.md)).
-- Empty/omitted manifests → one legacy workspace `id=default` from `index.*`.
 - Isolation is enforced in the vector store filters and via principal
   allowlists when HTTP auth is active ([docs/access-control.md](docs/access-control.md)).
 - Relationships between workspaces are declared on manifests and used for
@@ -90,9 +88,8 @@ Workspace / status (always registered):
 
 - `list_workspaces(query?, tags?)`
 - `get_workspace_info(workspace_id)`
-- `get_index_status(workspace_id?, source_id?)` — prefer over legacy `index_status`
-- `index_status()` — legacy freshness text
-- `list_sources(workspace_id?)` — workspace sources, or legacy config summary
+- `get_index_status(workspace_id?, source_id?)`
+- `list_sources(workspace_id?)` — sources for one workspace, or all visible workspaces
 - `search(...)` — service-layer search (`semantic` | `keyword` | `hybrid`)
 - `get_document(source_id, document_id, workspace_id?, start_line?, end_line?)`
 
@@ -179,7 +176,7 @@ From the package root (after venv setup):
 
 - Prefer `qdrant.mode: server` + Compose when multiple agents share an index
 - Index via CLI/CI; MCP clients are read-only consumers
-- Use `get_index_status` / `index_status.git_sha` to detect stale indexes
+- Use `get_index_status` / `git_sha` to detect stale indexes
 - Do not run two processes against `qdrant.mode: local` (stdio MCP + HTTP MCP + index)
 
 ## Follow-ups (not implemented)
@@ -206,7 +203,7 @@ rag-mcp/
     runtime.py
     security/          # paths, bearer auth, access policy
     services/          # ServiceApp (workspaces, search, documents, …)
-    workspaces/        # manifests, registry, legacy adapter
+    workspaces/        # manifests, registry
     domain/            # Workspace / Source models
     adapters/          # markdown, filesystem, optional pdf/docx
     indexer/           # walk, chunk, inventory, atomic/incremental run

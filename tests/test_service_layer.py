@@ -14,21 +14,25 @@ from rag.services import (
     WorkspaceRequiredError,
 )
 from rag.workspaces.registry import WorkspaceRegistry
+from tests.workspace_fixtures import with_workspace_manifest
 
 
 def _config(tmp_path: Path, repo: Path | None = None) -> Config:
     root = repo or tmp_path
-    return Config(
-        embedding=EmbeddingConfig(model="fake"),
-        qdrant=QdrantConfig(mode="memory", collection="svc"),
-        index=IndexConfig(
-            repo_root=str(root),
-            status_file=str(tmp_path / "status.json"),
-            knowledge=["docs/**/*.md"],
-            code=["src/**/*.py"],
-            sources="knowledge,code",
+    return with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="svc"),
+            index=IndexConfig(
+                repo_root=str(root),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=["docs/**/*.md"],
+                code=["src/**/*.py"],
+                sources="knowledge,code",
+            ),
+            search=SearchConfig(score_threshold=0.0),
         ),
-        search=SearchConfig(score_threshold=0.0),
+        tmp_path,
     )
 
 

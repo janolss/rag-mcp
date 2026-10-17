@@ -11,7 +11,7 @@ from rag.retrieval.fusion import reciprocal_rank_fusion
 from rag.retrieval.lexical import LexicalHit, LexicalIndex, lexical_index_path
 from rag.security.access import AccessDenied, authorize_source, authorize_workspace
 from rag.security.http_auth import require_principal
-from rag.services.errors import ServiceError, ValidationError
+from rag.services.errors import ForbiddenError, ServiceError, ValidationError
 from rag.services.resolve import resolve_workspace_id
 from rag.store import QdrantLockError, VectorStore
 
@@ -75,7 +75,7 @@ class SearchServiceImpl:
         try:
             authorize_workspace(principal, resolved)
         except AccessDenied as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ForbiddenError(str(exc)) from exc
 
         top_k = _DEFAULT_LIMIT if limit is None else int(limit)
         if top_k < 1 or top_k > _MAX_LIMIT:
@@ -90,7 +90,7 @@ class SearchServiceImpl:
             try:
                 authorize_source(principal, source_id)
             except AccessDenied as exc:
-                raise ServiceError(str(exc)) from exc
+                raise ForbiddenError(str(exc)) from exc
 
         if mode == "keyword":
             return self._keyword_search(
@@ -198,7 +198,7 @@ class SearchServiceImpl:
                 **kwargs,
             )
         except AccessDenied as exc:
-            raise ServiceError(str(exc)) from exc
+            raise ForbiddenError(str(exc)) from exc
         except QdrantLockError as exc:
             raise ServiceError(str(exc)) from exc
 

@@ -4,11 +4,12 @@
 # Unpack layout: place this package as <workspace>/rag-mcp/ so repo_root ".."
 # points at the workspace you want to index.
 #
-# Optional multi-workspace manifests. When empty/omitted, the server
-# exposes a synthetic workspace id=default derived from index.* below.
-# workspace_manifests:
-#   - ./examples/workspaces/lk_apps.yaml
-#   - ./examples/workspaces/shared-auth.yaml
+# Required: at least one workspace.yaml (see docs/workspace-manifest.md).
+# Edit examples/workspaces/local-default.yaml roots for your repo, or add more.
+workspace_manifests:
+  - ./examples/workspaces/local-default.yaml
+# - ./examples/workspaces/lk_apps.yaml
+# - ./examples/workspaces/shared-auth.yaml
 
 mcp:
   name: "workspace-rag"
@@ -146,6 +147,12 @@ index:
     - .turbo
     - .next
     - qdrant_data
+
+  # Optional extras unioned with the built-in secret denylist (path security)
+  # extra_secret_names:
+  #   - "my-secrets.json"
+  # extra_secret_suffixes:
+  #   - ".cred"
 
 search:
   top_k: 8

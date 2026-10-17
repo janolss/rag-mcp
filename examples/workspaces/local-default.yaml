@@ -1,0 +1,29 @@
+schema_version: 1
+
+id: default
+name: Local workspace
+
+description: >
+  Example single-workspace manifest. Paths are relative to the process CWD
+  when the server starts (normally the rag-mcp package root). Adjust roots
+  for your repo before indexing.
+
+roots:
+  - id: knowledge
+    path: ..
+    type: architecture_docs
+    include:
+      - README.md
+      - docs/**/*.md
+      - .devdoc/**/*.md
+  - id: code
+    path: ..
+    type: source_code
+    include:
+      - src/**/*.ts
+      - src/**/*.py
+      - apps/**/*.ts
+      - apps/**/*.py
+
+tags:
+  - local

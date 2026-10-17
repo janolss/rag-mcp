@@ -34,19 +34,53 @@ def require_principal(*, allow_anonymous: bool = True) -> Principal:
     return principal
 
 
+def _client_host(scope: dict) -> str | None:
+    client = scope.get("client")
+    if client and client[0]:
+        return str(client[0])
+    return None
+
+
+def _looks_like_ip(host: str) -> bool:
+    text = (host or "").strip()
+    if not text:
+        return False
+    if text.count(".") == 3 and all(p.isdigit() for p in text.split(".")):
+        return True
+    return ":" in text
+
+
 class BearerAuthMiddleware:
     """
     Resolve Authorization: Bearer tokens into a Principal.
 
-    Loopback clients may proceed anonymously when no token is provided.
+    Anonymous access is allowed only when the peer (or bind host as fallback) is
+    loopback, ``require_auth_always`` is false, and no bearer was sent.
     Non-loopback requests without a valid token are rejected with 401 when an
     auth profile exists (or always when require_auth_for_public_bind is set).
     """
 
-    def __init__(self, app: Any, policy: AccessPolicy, *, bind_host: str = "127.0.0.1"):
+    def __init__(
+        self,
+        app: Any,
+        policy: AccessPolicy,
+        *,
+        bind_host: str = "127.0.0.1",
+        require_auth_always: bool = False,
+    ):
         self.app = app
         self.policy = policy
         self.bind_host = bind_host
+        self.require_auth_always = require_auth_always
+
+    def _anonymous_allowed(self, scope: dict) -> bool:
+        if self.require_auth_always:
+            return False
+        peer = _client_host(scope)
+        if peer and _looks_like_ip(peer):
+            return is_loopback_host(peer)
+        # Missing peer or non-IP ASGI clients (e.g. Starlette TestClient): use bind host.
+        return is_loopback_host(self.bind_host)
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         if scope["type"] != "http":
@@ -71,10 +105,11 @@ class BearerAuthMiddleware:
             bearer = auth[7:].strip()
 
         principal = self.policy.authenticate(bearer) if bearer else None
-        loopback = is_loopback_host(self.bind_host)
 
         if principal is None:
-            if (loopback and not bearer) or (not self.policy.has_auth_profile() and loopback):
+            if (self._anonymous_allowed(scope) and not bearer) or (
+                not self.policy.has_auth_profile() and self._anonymous_allowed(scope)
+            ):
                 principal = LOCAL_ANONYMOUS
             else:
                 response = JSONResponse(
