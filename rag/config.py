@@ -449,9 +449,7 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
         ),
     )
     max_body_bytes = int(data.get("max_body_bytes", defaults.max_body_bytes))
-    rate_limit_per_minute = int(
-        data.get("rate_limit_per_minute", defaults.rate_limit_per_minute)
-    )
+    rate_limit_per_minute = int(data.get("rate_limit_per_minute", defaults.rate_limit_per_minute))
     return McpConfig(
         name=name,
         instructions=instructions,
