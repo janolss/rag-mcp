@@ -32,15 +32,9 @@ from rag.mcp_validate import (
     validate_lis_filters,
     validate_top_k,
 )
-from rag.retrieval import search as retrieval
-from rag.retrieval.context_pack import get_context_pack as _get_context_pack
-from rag.retrieval.impact import find_gaps as _find_gaps
-from rag.retrieval.impact import impact_of_change as _impact_of_change
 from rag.retrieval.sources_info import list_sources as _list_sources
 from rag.retrieval.sources_info import list_sources_resource as _list_sources_resource
-from rag.retrieval.status_info import index_status as _index_status
 from rag.retrieval.status_info import index_status_resource as _index_status_resource
-from rag.retrieval.trace import trace_requirement as _trace_requirement
 from rag.runtime import RagRuntime
 from rag.services import (
     NotFoundError,
@@ -85,32 +79,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
         logger.exception("RAG service call failed")
         return tool_error(str(exc))
 
-    async def _with_runtime(search_fn: Callable[..., str], **kwargs: Any) -> CallToolResult:
-        try:
-            store = runtime.get_store()
-            embedder = runtime.get_embedder()
-        except QdrantLockError as exc:
-            return tool_error(str(exc))
-        except Exception as exc:
-            logger.exception("Failed to initialize RAG runtime")
-            return tool_error(f"failed to initialize RAG runtime: {exc}")
-
-        def _call() -> str:
-            return search_fn(
-                config,
-                store=store,
-                embedder=embedder,
-                **kwargs,
-            )
-
-        try:
-            text = await anyio.to_thread.run_sync(_call)
-        except Exception as exc:
-            logger.exception("RAG tool call failed")
-            return tool_error(str(exc))
-        return as_tool_result(text)
-
-    async def _with_search_service(method: Callable[..., Any], **kwargs: Any) -> CallToolResult:
+    async def _with_json_service(method: Callable[..., Any], **kwargs: Any) -> CallToolResult:
         try:
             store = runtime.get_store()
             embedder = runtime.get_embedder()
@@ -130,6 +99,27 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
         except Exception as exc:
             return _service_error(exc)
         return as_tool_result(json.dumps(payload, indent=2) + "\n")
+
+    async def _with_text_service(method: Callable[..., str], **kwargs: Any) -> CallToolResult:
+        try:
+            store = runtime.get_store()
+            embedder = runtime.get_embedder()
+        except QdrantLockError as exc:
+            return tool_error(str(exc))
+        except Exception as exc:
+            logger.exception("Failed to initialize RAG runtime")
+            return tool_error(f"failed to initialize RAG runtime: {exc}")
+
+        app = services.with_runtime(store=store, embedder=embedder)
+
+        def _call() -> str:
+            return method(app, **kwargs)
+
+        try:
+            text = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(text)
 
     if caps.knowledge:
 
@@ -156,8 +146,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 return tool_error(err)
             if err := validate_top_k(top_k):
                 return tool_error(err)
-            return await _with_runtime(
-                retrieval.search_knowledge,
+            return await _with_text_service(
+                lambda app, **kw: app.search.search_knowledge(**kw),
                 query=query,
                 top_k=top_k,
                 path_prefix=path_prefix,
@@ -188,8 +178,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 return tool_error(err)
             if err := validate_top_k(top_k):
                 return tool_error(err)
-            return await _with_runtime(
-                retrieval.search_code,
+            return await _with_text_service(
+                lambda app, **kw: app.search.search_code(**kw),
                 query=query,
                 app=app,
                 top_k=top_k,
@@ -236,8 +226,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 status=status,
             ):
                 return tool_error(err)
-            return await _with_runtime(
-                retrieval.search_lis,
+            return await _with_text_service(
+                lambda app, **kw: app.search.search_lis(**kw),
                 query=query,
                 top_k=top_k,
                 path_prefix=path_prefix,
@@ -325,8 +315,15 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
         Legacy wrapper; prefer get_index_status for workspace-scoped clients.
         Call before non-trivial change or review work.
         """
-        text = await anyio.to_thread.run_sync(_index_status, config)
-        return as_tool_result(text)
+
+        def _call() -> dict[str, Any]:
+            return services.status.get_index_status()
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
 
     @mcp.tool()
     async def list_sources(workspace_id: str | None = None) -> CallToolResult:
@@ -378,7 +375,7 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             return tool_error(err)
         if err := validate_top_k(limit):
             return tool_error(err)
-        return await _with_search_service(
+        return await _with_json_service(
             lambda app, **kw: app.search.search(**kw),
             query=query,
             workspace_id=workspace_id,
@@ -457,8 +454,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
             ):
                 if err := validate_top_k(value, name=name):
                     return tool_error(err)
-            return await _with_runtime(
-                _get_context_pack,
+            return await _with_text_service(
+                lambda app, **kw: app.analysis.get_context_pack(**kw),
                 task=task,
                 app=app,
                 top_k_docs=top_k_docs,
@@ -486,8 +483,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 return tool_error(err)
             if err := validate_top_k(top_k):
                 return tool_error(err)
-            return await _with_runtime(
-                _trace_requirement,
+            return await _with_text_service(
+                lambda app, **kw: app.analysis.trace_requirement(**kw),
                 requirement=requirement,
                 app=app,
                 top_k=top_k,
@@ -513,8 +510,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 return tool_error(err)
             if err := validate_top_k(top_k):
                 return tool_error(err)
-            return await _with_runtime(
-                _impact_of_change,
+            return await _with_text_service(
+                lambda app, **kw: app.analysis.impact_of_change(**kw),
                 change=change,
                 app=app,
                 path_prefix=path_prefix,
@@ -539,8 +536,8 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
                 return tool_error(err)
             if err := validate_top_k(top_k):
                 return tool_error(err)
-            return await _with_runtime(
-                _find_gaps,
+            return await _with_text_service(
+                lambda app, **kw: app.analysis.find_gaps(**kw),
                 area=area,
                 app=app,
                 top_k=top_k,

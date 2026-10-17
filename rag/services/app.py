@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from rag.config import Config
 from rag.embeddings import EmbeddingClient
+from rag.services.analysis import AnalysisServiceImpl
 from rag.services.documents import DocumentServiceImpl
 from rag.services.search import SearchServiceImpl
 from rag.services.sources import SourceServiceImpl
@@ -28,6 +29,7 @@ class ServiceApp:
         self.search = SearchServiceImpl(config, store=store, embedder=embedder)
         self.documents = DocumentServiceImpl(config)
         self.status = StatusServiceImpl(config)
+        self.analysis = AnalysisServiceImpl(config, store=store, embedder=embedder)
 
     def with_runtime(
         self,
