@@ -73,6 +73,7 @@ def test_get_document_and_status(tmp_path: Path):
     body = doc.json()
     assert "Hello" in body["content"]
     assert "world" not in body["content"]
+    assert "absolute_path" not in body
 
     status = client.get("/api/v1/index/status", params={"workspace_id": "default"})
     assert status.status_code == 200

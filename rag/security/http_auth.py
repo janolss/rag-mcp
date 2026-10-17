@@ -54,7 +54,7 @@ class BearerAuthMiddleware:
             return
 
         path = scope.get("path") or ""
-        if path in {"/health", "/metrics"}:
+        if path == "/health":
             token = _principal.set(LOCAL_ANONYMOUS)
             try:
                 await self.app(scope, receive, send)

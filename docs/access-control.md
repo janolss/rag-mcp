@@ -34,4 +34,8 @@ Raw `token` values in config are hashed at load time; prefer storing only
   list/get workspace, sources, search, documents, and index status
 - MCP stdio remains local-anonymous
 
-`/health` and `/metrics` stay reachable without a bearer token for probes.
+`/health` stays reachable without a bearer token for probes. `/metrics` follows
+the same auth rules as `/api/v1` (anonymous on loopback; bearer on public binds).
+
+HTTP also enforces `mcp.max_body_bytes` (413) and, on non-loopback binds,
+`mcp.rate_limit_per_minute` (429; `0` disables).

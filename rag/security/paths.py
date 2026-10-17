@@ -13,8 +13,16 @@ DEFAULT_SECRET_NAMES = frozenset(
         ".env",
         ".env.local",
         ".env.production",
+        ".env.development",
+        ".env.staging",
+        ".env.test",
+        ".npmrc",
         "credentials.json",
         "service-account.json",
+        "secrets.yaml",
+        "secrets.yml",
+        "local.settings.json",
+        "kubeconfig",
         "id_rsa",
         "id_ed25519",
         "id_dsa",
@@ -29,6 +37,9 @@ DEFAULT_SECRET_SUFFIXES = frozenset(
         ".p12",
         ".pfx",
         ".jks",
+        ".keystore",
+        ".ovpn",
+        ".p8",
     }
 )
 

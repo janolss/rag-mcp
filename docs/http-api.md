@@ -30,10 +30,15 @@ unchanged.
 }
 ```
 
+## Document payload
+
+`GET /api/v1/documents` returns repo-relative `path` / `document_id`, optional
+line range, and `content`. Absolute filesystem paths are not included.
+
 ## Errors
 
-JSON `{ "error": "...", "code": "not_found|validation_error|workspace_required|..." }`
-with HTTP 400/404/500.
+JSON `{ "error": "...", "code": "not_found|validation_error|workspace_required|unauthorized|forbidden|body_too_large|rate_limited|..." }`
+with HTTP 400/401/403/404/413/429/500.
 
 ## curl examples
 

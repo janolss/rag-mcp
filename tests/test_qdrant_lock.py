@@ -53,3 +53,44 @@ def test_connect_succeeds_after_transient_lock(monkeypatch: pytest.MonkeyPatch):
     store = VectorStore(cfg)
     assert state["n"] == 3
     store.close()
+
+
+def test_server_mode_passes_api_key(monkeypatch: pytest.MonkeyPatch):
+    seen: dict = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            seen.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("rag.store.QdrantClient", FakeClient)
+    cfg = Config(
+        qdrant=QdrantConfig(
+            mode="server",
+            url="http://localhost:6333",
+            api_key="secret-qdrant",
+        )
+    )
+    store = VectorStore(cfg)
+    assert seen.get("url") == "http://localhost:6333"
+    assert seen.get("api_key") == "secret-qdrant"
+    store.close()
+
+
+def test_server_mode_omits_empty_api_key(monkeypatch: pytest.MonkeyPatch):
+    seen: dict = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            seen.update(kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("rag.store.QdrantClient", FakeClient)
+    cfg = Config(qdrant=QdrantConfig(mode="server", url="http://localhost:6333", api_key=""))
+    store = VectorStore(cfg)
+    assert seen.get("api_key") is None
+    store.close()

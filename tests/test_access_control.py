@@ -36,6 +36,8 @@ def _base_config(
     *,
     host: str = "127.0.0.1",
     tokens: list[dict] | None = None,
+    max_body_bytes: int = 1_048_576,
+    rate_limit_per_minute: int = 120,
 ) -> Config:
     return Config(
         embedding=EmbeddingConfig(model="fake"),
@@ -51,6 +53,8 @@ def _base_config(
         mcp=McpConfig(
             host=host,
             auth=McpAuthConfig(tokens=list(tokens or [])),
+            max_body_bytes=max_body_bytes,
+            rate_limit_per_minute=rate_limit_per_minute,
         ),
     )
 
@@ -226,6 +230,58 @@ def test_rest_search_forbidden_for_disallowed_workspace(tmp_path: Path):
     )
     assert resp.status_code == 403
     assert resp.json()["code"] == "forbidden"
+
+
+def test_metrics_requires_bearer_on_public_host(tmp_path: Path):
+    digest = hash_token("metric-token")
+    config = _base_config(
+        tmp_path,
+        host="0.0.0.0",
+        tokens=[{"name": "ops", "token_hash": digest, "workspaces": ["*"]}],
+    )
+    client = TestClient(create_api_app(config))
+    assert client.get("/health").status_code == 200
+    assert client.get("/metrics").status_code == 401
+    ok = client.get("/metrics", headers={"Authorization": "Bearer metric-token"})
+    assert ok.status_code == 200
+
+
+def test_max_body_bytes_rejected(tmp_path: Path):
+    digest = hash_token("body-token")
+    config = _base_config(
+        tmp_path,
+        host="0.0.0.0",
+        tokens=[{"name": "ops", "token_hash": digest, "workspaces": ["*"]}],
+        max_body_bytes=32,
+        rate_limit_per_minute=0,
+    )
+    client = TestClient(create_api_app(config))
+    payload = json.dumps({"query": "x" * 100, "workspace_id": "default"})
+    resp = client.post(
+        "/api/v1/search",
+        headers={
+            "Authorization": "Bearer body-token",
+            "content-type": "application/json",
+        },
+        content=payload,
+    )
+    assert resp.status_code == 413
+    assert resp.json()["code"] == "body_too_large"
+
+
+def test_rate_limit_on_public_host(tmp_path: Path):
+    digest = hash_token("rate-token")
+    config = _base_config(
+        tmp_path,
+        host="0.0.0.0",
+        tokens=[{"name": "ops", "token_hash": digest, "workspaces": ["*"]}],
+        rate_limit_per_minute=3,
+    )
+    client = TestClient(create_api_app(config))
+    headers = {"Authorization": "Bearer rate-token"}
+    codes = [client.get("/api/v1/workspaces", headers=headers).status_code for _ in range(5)]
+    assert codes.count(200) >= 1
+    assert 429 in codes
 
 
 def test_principal_filter_parity():
