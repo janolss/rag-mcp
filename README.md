@@ -250,9 +250,13 @@ Prefer **server mode** when several agents or MCP sessions share the index:
 qdrant:
   mode: "server"
   url: "http://localhost:6333"
+  api_key: "${QDRANT_API_KEY}"   # or set RAG_QDRANT_API_KEY
 ```
 
+Compose binds Qdrant to loopback and requires `QDRANT_API_KEY`:
+
 ```bash
+export QDRANT_API_KEY="$(openssl rand -hex 24)"
 npm run rag:up
 ```
 

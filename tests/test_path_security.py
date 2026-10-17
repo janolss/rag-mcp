@@ -56,6 +56,21 @@ def test_rejects_secrets_and_large_files(tmp_path: Path):
         assert_within_roots(big, [root], policy=policy)
 
 
+def test_rejects_extended_secret_names_and_suffixes(tmp_path: Path):
+    root = tmp_path / "root"
+    root.mkdir()
+    for name in (".npmrc", "secrets.yaml", "local.settings.json", "kubeconfig"):
+        path = root / name
+        path.write_text("x", encoding="utf-8")
+        with pytest.raises(SecurePathError, match="secret"):
+            assert_within_roots(path, [root])
+    for name in ("client.ovpn", "app.keystore", "AuthKey.p8"):
+        path = root / name
+        path.write_text("x", encoding="utf-8")
+        with pytest.raises(SecurePathError, match="secret"):
+            assert_within_roots(path, [root])
+
+
 def test_registered_external_root_is_allowed(tmp_path: Path):
     workspace = tmp_path / "ws"
     workspace.mkdir()

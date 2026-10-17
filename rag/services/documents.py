@@ -103,7 +103,6 @@ class DocumentServiceImpl:
             "source_id": source_id,
             "document_id": normalize_document_id(identity),
             "path": identity,
-            "absolute_path": str(canonical),
             "start_line": s if total else None,
             "end_line": e if total else None,
             "line_count": total,

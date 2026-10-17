@@ -21,6 +21,7 @@ from rag.observability import (
 )
 from rag.security.access import AccessDenied, AccessPolicy
 from rag.security.http_auth import BearerAuthMiddleware
+from rag.security.http_limits import MaxBodyMiddleware, RateLimitMiddleware
 from rag.services import (
     NotFoundError,
     ServiceApp,
@@ -242,7 +243,11 @@ def mount_api_routes(app: Any, config: Config, services: ServiceApp | None = Non
 
 
 def install_http_middleware(app: Any, config: Config) -> None:
-    """Attach bearer auth + correlation middleware to a Starlette app."""
+    """Attach limits, bearer auth, and correlation middleware to a Starlette app.
+
+    Starlette wraps so the last ``add_middleware`` call is outermost. Desired
+    order outer→inner: rate limit → max body → correlation → bearer → routes.
+    """
     policy = AccessPolicy.from_mapping(
         {
             "tokens": list(config.mcp.auth.tokens),
@@ -251,6 +256,15 @@ def install_http_middleware(app: Any, config: Config) -> None:
     )
     app.add_middleware(BearerAuthMiddleware, policy=policy, bind_host=config.mcp.host)
     app.add_middleware(CorrelationMiddleware)
+    app.add_middleware(
+        MaxBodyMiddleware,
+        max_body_bytes=int(getattr(config.mcp, "max_body_bytes", 1_048_576) or 0),
+    )
+    app.add_middleware(
+        RateLimitMiddleware,
+        rate_limit_per_minute=int(getattr(config.mcp, "rate_limit_per_minute", 120) or 0),
+        bind_host=config.mcp.host,
+    )
 
 
 def create_api_app(config: Config, services: ServiceApp | None = None) -> Starlette:

@@ -19,6 +19,8 @@ mcp:
   host: "127.0.0.1"
   port: 8000
   stateless_http: true
+  # max_body_bytes: 1048576
+  # rate_limit_per_minute: 120   # ignored on loopback; 0 disables
   # path: "/mcp"   # streamable-http / sse only (ignored for dual http)
   # message_path: "/messages/"
   # Toggle which tool surfaces (and index buckets) are active.
@@ -72,6 +74,8 @@ qdrant:
   mode: "local" # local | memory | server
   local_path: "./qdrant_data"
   url: "http://localhost:6333"
+  # Match QDRANT_API_KEY when using docker-compose.qdrant.yml (or set RAG_QDRANT_API_KEY)
+  # api_key: ""
   # Use a unique collection name per workspace
   collection: "workspace_rag"
   # Local mode allows only one process. Retries help Cursor reconnect races.

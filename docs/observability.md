@@ -15,9 +15,9 @@
 
 | Path | Purpose |
 |------|---------|
-| `GET /health` | Liveness |
+| `GET /health` | Liveness (no bearer required) |
 | `GET /ready` | Ready when lifecycle is `ready` or `partial` (else 503) |
-| `GET /metrics` | Prometheus text counters/latency |
+| `GET /metrics` | Prometheus text; same auth as `/api/v1` (anonymous on loopback) |
 
 ## Correlation ID
 

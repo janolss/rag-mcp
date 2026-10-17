@@ -107,6 +107,8 @@ class QdrantConfig:
     local_path: str = "./qdrant_data"
     url: str = "http://localhost:6333"
     collection: str = "workspace_rag"
+    # Optional; required when the Qdrant server enforces an API key
+    api_key: str = ""
     # Retries when local storage is briefly locked (Cursor reconnect / overlapping start)
     connect_retries: int = 10
     connect_retry_delay_ms: int = 500
@@ -153,6 +155,9 @@ class McpConfig:
     # Prefer True for URL clients that struggle with session headers
     stateless_http: bool = True
     auth: McpAuthConfig = field(default_factory=McpAuthConfig)
+    # HTTP request guards (body always; rate limit only on non-loopback binds)
+    max_body_bytes: int = 1_048_576
+    rate_limit_per_minute: int = 120
 
 
 @dataclass
@@ -443,6 +448,8 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
             True,
         ),
     )
+    max_body_bytes = int(data.get("max_body_bytes", defaults.max_body_bytes))
+    rate_limit_per_minute = int(data.get("rate_limit_per_minute", defaults.rate_limit_per_minute))
     return McpConfig(
         name=name,
         instructions=instructions,
@@ -454,6 +461,8 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
         message_path=message_path,
         stateless_http=stateless_http,
         auth=auth,
+        max_body_bytes=max(0, max_body_bytes),
+        rate_limit_per_minute=max(0, rate_limit_per_minute),
     )
 
 
@@ -474,6 +483,7 @@ def _overlay_env(config: Config) -> Config:
         "RAG_QDRANT_LOCAL_PATH": ("qdrant", "local_path", str),
         "RAG_QDRANT_URL": ("qdrant", "url", str),
         "RAG_QDRANT_COLLECTION": ("qdrant", "collection", str),
+        "RAG_QDRANT_API_KEY": ("qdrant", "api_key", str),
         "RAG_QDRANT_CONNECT_RETRIES": ("qdrant", "connect_retries", int),
         "RAG_QDRANT_CONNECT_RETRY_DELAY_MS": ("qdrant", "connect_retry_delay_ms", int),
         "RAG_INDEX_REPO_ROOT": ("index", "repo_root", str),
@@ -491,6 +501,8 @@ def _overlay_env(config: Config) -> Config:
         "RAG_MCP_PORT": ("mcp", "port", int),
         "RAG_MCP_PATH": ("mcp", "path", str),
         "RAG_MCP_MESSAGE_PATH": ("mcp", "message_path", str),
+        "RAG_MCP_MAX_BODY_BYTES": ("mcp", "max_body_bytes", int),
+        "RAG_MCP_RATE_LIMIT_PER_MINUTE": ("mcp", "rate_limit_per_minute", int),
         "RAG_LOG_LEVEL": ("log_level", None, str),
     }
 

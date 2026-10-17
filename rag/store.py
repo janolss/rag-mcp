@@ -83,7 +83,8 @@ class VectorStore:
             return QdrantClient(location=":memory:")
         if mode == "server":
             logger.info("Connecting to Qdrant server at %s", self._config.qdrant.url)
-            return QdrantClient(url=self._config.qdrant.url)
+            api_key = (self._config.qdrant.api_key or "").strip() or None
+            return QdrantClient(url=self._config.qdrant.url, api_key=api_key)
         if mode != "local":
             raise ValueError(f"Unsupported qdrant.mode: {mode}")
 
