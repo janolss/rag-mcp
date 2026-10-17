@@ -7,6 +7,9 @@ from typing import Any
 from rag.config import Config
 from rag.indexer.run import status_report
 from rag.observability import derive_lifecycle, get_correlation_id
+from rag.security.access import AccessDenied, authorize_source, authorize_workspace
+from rag.security.http_auth import require_principal
+from rag.services.errors import ServiceError
 from rag.services.resolve import resolve_workspace_id
 
 
@@ -21,6 +24,15 @@ class StatusServiceImpl:
         source_id: str | None = None,
     ) -> dict[str, Any]:
         resolved = resolve_workspace_id(self.config, workspace_id, required=False)
+        principal = require_principal()
+        try:
+            if resolved is not None:
+                authorize_workspace(principal, resolved)
+            if source_id:
+                authorize_source(principal, source_id)
+        except AccessDenied as exc:
+            raise ServiceError(str(exc)) from exc
+
         report = status_report(self.config)
         report["workspace_id"] = resolved
         if source_id:

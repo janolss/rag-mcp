@@ -241,9 +241,8 @@ def mount_api_routes(app: Any, config: Config, services: ServiceApp | None = Non
         app.routes.insert(0, route)
 
 
-def create_api_app(config: Config, services: ServiceApp | None = None) -> Starlette:
-    """Standalone Starlette app exposing only /api/v1 (useful for tests)."""
-    app = Starlette(routes=build_api_routes(config, services=services))
+def install_http_middleware(app: Any, config: Config) -> None:
+    """Attach bearer auth + correlation middleware to a Starlette app."""
     policy = AccessPolicy.from_mapping(
         {
             "tokens": list(config.mcp.auth.tokens),
@@ -252,6 +251,12 @@ def create_api_app(config: Config, services: ServiceApp | None = None) -> Starle
     )
     app.add_middleware(BearerAuthMiddleware, policy=policy, bind_host=config.mcp.host)
     app.add_middleware(CorrelationMiddleware)
+
+
+def create_api_app(config: Config, services: ServiceApp | None = None) -> Starlette:
+    """Standalone Starlette app exposing only /api/v1 (useful for tests)."""
+    app = Starlette(routes=build_api_routes(config, services=services))
+    install_http_middleware(app, config)
     return app
 
 

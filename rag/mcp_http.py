@@ -80,10 +80,11 @@ def _root_info_route(config: Config):
 
 def _attach_http_routes(app: Any, config: Config) -> None:
     """Mount REST /api/v1 alongside MCP transports; keep MCP paths intact."""
-    from rag.http_api import mount_api_routes
+    from rag.http_api import install_http_middleware, mount_api_routes
 
     mount_api_routes(app, config)
     app.routes.insert(0, _root_info_route(config))
+    install_http_middleware(app, config)
 
 
 async def run_http_async(mcp: MCPServer, config: Config) -> None:

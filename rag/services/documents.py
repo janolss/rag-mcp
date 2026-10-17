@@ -8,8 +8,10 @@ from typing import Any
 from rag.config import Config
 from rag.indexer.identity import normalize_document_id
 from rag.indexer.source_model import resolve_workspace_sources
+from rag.security.access import AccessDenied, authorize_source, authorize_workspace
+from rag.security.http_auth import require_principal
 from rag.security.paths import PathSecurityPolicy, SecurePathError, assert_within_roots
-from rag.services.errors import NotFoundError, ValidationError
+from rag.services.errors import NotFoundError, ServiceError, ValidationError
 from rag.services.resolve import require_workspace
 
 
@@ -38,6 +40,13 @@ class DocumentServiceImpl:
             raise ValidationError("end_line must be >= start_line")
 
         workspace = require_workspace(self.config, workspace_id)
+        principal = require_principal()
+        try:
+            authorize_workspace(principal, workspace.id)
+            authorize_source(principal, source_id)
+        except AccessDenied as exc:
+            raise ServiceError(str(exc)) from exc
+
         _, sources = resolve_workspace_sources(self.config, workspace_id=workspace.id)
         source = next((s for s in sources if s.id == source_id), None)
         if source is None:

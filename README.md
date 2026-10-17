@@ -152,7 +152,11 @@ npm run rag:mcp:http
 Point modern URL clients at **`/mcp`**, not `/`, `/sse`, or bare `host:port`.
 `GET http://127.0.0.1:8000/` returns a JSON map of endpoints.
 
-Bind to `127.0.0.1` by default. Do **not** use `0.0.0.0` / `::` without an authenticating reverse proxy — the HTTP MCP has no built-in auth and would expose your index on the network.
+Bind to `127.0.0.1` by default (anonymous local access). Non-loopback binds
+(`0.0.0.0` / `::`) require `mcp.auth.tokens`; clients must send
+`Authorization: Bearer …` for REST and MCP paths. Prefer loopback for local
+agents, or put a reverse proxy in front for shared hosts. See
+[docs/access-control.md](docs/access-control.md).
 
 Config / env (CLI flags override):
 
@@ -162,6 +166,10 @@ mcp:
   host: "127.0.0.1"
   port: 8000
   stateless_http: true    # better for many URL clients
+  # auth:                 # required when host is not loopback
+  #   tokens:
+  #     - name: ci
+  #       token_hash: "<sha256 hex>"
 ```
 
 `RAG_MCP_TRANSPORT`, `RAG_MCP_HOST`, `RAG_MCP_PORT`, `RAG_MCP_PATH`.

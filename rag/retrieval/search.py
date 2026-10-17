@@ -160,12 +160,19 @@ def search_hits(
     else:
         legacy = bool(allow_legacy) if allow_legacy is not None else False
 
+    from rag.security.access import authorize_source, authorize_workspace
+    from rag.security.http_auth import require_principal
+
+    principal = require_principal()
+    if resolved_workspace is not None:
+        authorize_workspace(principal, resolved_workspace)
+    if source_id:
+        authorize_source(principal, source_id)
+
     expanded_related = related_workspace_ids
     if (scope or "workspace").strip().lower() == "related" and expanded_related is None:
         from rag.relationships.registry import RelationshipRegistry
-        from rag.security.http_auth import require_principal
 
-        principal = require_principal()
         assert resolved_workspace is not None
         rel_registry = RelationshipRegistry.from_workspace_registry(registry)
         expanded_related = rel_registry.related_workspace_ids(
