@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextvars import ContextVar
 from typing import Any
 
@@ -14,7 +15,12 @@ from rag.security.access import (
     is_loopback_host,
 )
 
+logger = logging.getLogger(__name__)
+
 _principal: ContextVar[Principal | None] = ContextVar("rag_principal", default=None)
+
+# Paths owned by the MCP SDK auth stack when OAuth resource-server mode is on.
+_SDK_AUTH_PREFIXES = ("/mcp", "/sse", "/messages")
 
 
 def get_principal() -> Principal | None:
@@ -50,6 +56,15 @@ def _looks_like_ip(host: str) -> bool:
     return ":" in text
 
 
+def _is_sdk_owned_path(path: str) -> bool:
+    if path.startswith("/.well-known/"):
+        return True
+    for prefix in _SDK_AUTH_PREFIXES:
+        if path == prefix or path.startswith(f"{prefix}/"):
+            return True
+    return False
+
+
 class BearerAuthMiddleware:
     """
     Resolve Authorization: Bearer tokens into a Principal.
@@ -58,6 +73,9 @@ class BearerAuthMiddleware:
     loopback, ``require_auth_always`` is false, and no bearer was sent.
     Non-loopback requests without a valid token are rejected with 401 when an
     auth profile exists (or always when require_auth_for_public_bind is set).
+
+    When ``skip_sdk_paths`` is true (OAuth resource-server mode), MCP and
+    well-known paths are left to the MCP SDK auth middleware.
     """
 
     def __init__(
@@ -67,11 +85,17 @@ class BearerAuthMiddleware:
         *,
         bind_host: str = "127.0.0.1",
         require_auth_always: bool = False,
+        token_verifier: Any | None = None,
+        resource_metadata_url: str | None = None,
+        skip_sdk_paths: bool = False,
     ):
         self.app = app
         self.policy = policy
         self.bind_host = bind_host
         self.require_auth_always = require_auth_always
+        self.token_verifier = token_verifier
+        self.resource_metadata_url = resource_metadata_url
+        self.skip_sdk_paths = skip_sdk_paths
 
     def _anonymous_allowed(self, scope: dict) -> bool:
         if self.require_auth_always:
@@ -82,18 +106,42 @@ class BearerAuthMiddleware:
         # Missing peer or non-IP ASGI clients (e.g. Starlette TestClient): use bind host.
         return is_loopback_host(self.bind_host)
 
+    def _unauthorized(self, scope: dict, *, reason: str) -> JSONResponse:
+        peer = _client_host(scope) or "unknown"
+        path = scope.get("path") or ""
+        logger.warning(
+            "auth_fail peer=%s path=%s reason=%s",
+            peer,
+            path,
+            reason,
+        )
+        headers: dict[str, str] = {}
+        if self.resource_metadata_url:
+            headers["WWW-Authenticate"] = (
+                f'Bearer error="invalid_token", resource_metadata="{self.resource_metadata_url}"'
+            )
+        return JSONResponse(
+            {"error": "unauthorized", "code": "unauthorized"},
+            status_code=401,
+            headers=headers,
+        )
+
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
         path = scope.get("path") or ""
-        if path == "/health":
+        if path == "/health" or path.startswith("/.well-known/"):
             token = _principal.set(LOCAL_ANONYMOUS)
             try:
                 await self.app(scope, receive, send)
             finally:
                 _principal.reset(token)
+            return
+
+        if self.skip_sdk_paths and _is_sdk_owned_path(path):
+            await self.app(scope, receive, send)
             return
 
         headers = {
@@ -104,7 +152,19 @@ class BearerAuthMiddleware:
         if auth.lower().startswith("bearer "):
             bearer = auth[7:].strip()
 
-        principal = self.policy.authenticate(bearer) if bearer else None
+        principal: Principal | None = None
+        if bearer:
+            if self.token_verifier is not None:
+                access = self.token_verifier.verify_token_sync(bearer)
+                principal = get_principal() if access is not None else None
+                if access is not None and principal is None:
+                    principal = Principal(
+                        subject=access.subject or access.client_id,
+                        anonymous=False,
+                    )
+                    set_principal(principal)
+            else:
+                principal = self.policy.authenticate(bearer)
 
         if principal is None:
             if (self._anonymous_allowed(scope) and not bearer) or (
@@ -112,13 +172,17 @@ class BearerAuthMiddleware:
             ):
                 principal = LOCAL_ANONYMOUS
             else:
-                response = JSONResponse(
-                    {"error": "unauthorized", "code": "unauthorized"},
-                    status_code=401,
-                )
+                reason = "invalid_token" if bearer else "missing_bearer"
+                response = self._unauthorized(scope, reason=reason)
                 await response(scope, receive, send)
                 return
 
+        logger.debug(
+            "auth_ok subject=%s path=%s anonymous=%s",
+            principal.subject,
+            path,
+            principal.anonymous,
+        )
         token = _principal.set(principal)
         try:
             await self.app(scope, receive, send)

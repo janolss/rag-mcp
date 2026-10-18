@@ -19,7 +19,7 @@ from rag.observability import (
     get_correlation_id,
     new_correlation_id,
 )
-from rag.security.access import AccessDenied, AccessPolicy
+from rag.security.access import AccessDenied
 from rag.security.http_auth import BearerAuthMiddleware
 from rag.security.http_limits import MaxBodyMiddleware, RateLimitMiddleware
 from rag.services import (
@@ -245,18 +245,25 @@ def install_http_middleware(app: Any, config: Config) -> None:
     Starlette wraps so the last ``add_middleware`` call is outermost. Desired
     order outer→inner: rate limit → max body → correlation → bearer → routes.
     """
-    policy = AccessPolicy.from_mapping(
-        {
-            "tokens": list(config.mcp.auth.tokens),
-            "require_auth_for_public_bind": config.mcp.auth.require_auth_for_public_bind,
-            "require_auth_always": config.mcp.auth.require_auth_always,
-        }
+    from rag.security.oauth import (
+        CompositeTokenVerifier,
+        build_access_policy,
+        oauth_enabled,
+        protected_resource_metadata_url,
     )
+
+    policy = build_access_policy(config)
+    oauth_on = oauth_enabled(config)
+    verifier = CompositeTokenVerifier(config, policy) if oauth_on or policy.tokens else None
+    metadata_url = protected_resource_metadata_url(config) if oauth_on else None
     app.add_middleware(
         BearerAuthMiddleware,
         policy=policy,
         bind_host=config.mcp.host,
         require_auth_always=config.mcp.auth.require_auth_always,
+        token_verifier=verifier,
+        resource_metadata_url=metadata_url,
+        skip_sdk_paths=oauth_on,
     )
     app.add_middleware(CorrelationMiddleware)
     app.add_middleware(

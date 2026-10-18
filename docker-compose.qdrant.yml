@@ -1,6 +1,10 @@
 # Optional: use when qdrant.mode is "server"
 # export QDRANT_API_KEY=…   # required
 # docker compose -f docker-compose.qdrant.yml up -d
+#
+# Optional Ollama (local embeddings):
+# docker compose -f docker-compose.qdrant.yml --profile ollama up -d
+# then: docker compose -f docker-compose.qdrant.yml exec ollama ollama pull nomic-embed-text
 
 services:
   qdrant:
@@ -13,5 +17,14 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  ollama:
+    profiles: ["ollama"]
+    image: ollama/ollama:latest
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama_storage:/root/.ollama
+
 volumes:
   qdrant_storage:
+  ollama_storage:

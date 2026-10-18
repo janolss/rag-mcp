@@ -28,3 +28,14 @@ responses. Context is stored in a contextvar for service/store logs.
 
 `rag.observability.redact` strips API keys, bearer tokens, and private key
 blocks. Document contents and credentials must never be logged.
+
+HTTP auth failures (`missing_bearer` / `invalid_token`) are logged at warning
+with peer and path only — never the raw token. See
+[access-control.md](access-control.md).
+
+## Embedding circuit breaker
+
+`embedding.circuit_breaker_failures` / `circuit_breaker_seconds` open a
+process-local breaker after consecutive embedding HTTP failures so search fails
+fast with a clear error instead of hanging on a dead embedding server. Set either
+value to `0` to disable.

@@ -66,6 +66,29 @@ def test_check_embedding_skip(tmp_path: Path):
     assert "skipped" in result.message
 
 
+def test_empty_index_warns_with_index_command(tmp_path: Path):
+    from rag.doctor import check_index_freshness
+    from tests.workspace_fixtures import with_workspace_manifest
+
+    config = with_workspace_manifest(
+        Config(
+            embedding=EmbeddingConfig(model="fake"),
+            qdrant=QdrantConfig(mode="memory", collection="doctor_empty"),
+            index=IndexConfig(
+                repo_root=str(tmp_path),
+                status_file=str(tmp_path / "status.json"),
+                knowledge=[],
+                code=[],
+            ),
+        ),
+        tmp_path,
+    )
+    result = check_index_freshness(config)
+    assert result.status == "warn"
+    assert "empty index" in result.message
+    assert "rag.cli index" in result.message
+
+
 def test_cli_doctor_smoke(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from rag import cli
     from tests.workspace_fixtures import write_workspace_manifest

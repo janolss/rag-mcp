@@ -10,6 +10,8 @@ from rag.store import QdrantLockError, VectorStore, lock_error_message
 def test_lock_error_message_mentions_server_mode():
     msg = lock_error_message("/tmp/qdrant_data")
     assert "qdrant.mode=server" in msg
+    assert "rag:up" in msg
+    assert "doctor" in msg
     assert "/tmp/qdrant_data" in msg
 
 

@@ -53,7 +53,7 @@ DEFAULT_MCP_INSTRUCTIONS = """You have access to a private RAG index for one or 
 Workflow (mandatory):
 1. Start with list_workspaces to discover registered workspace ids (and tags/names). Prefer this before any search or status call when the target workspace is unclear.
 2. Call get_workspace_info(workspace_id) and/or list_sources(workspace_id) for the chosen workspace. Pass workspace_id into search / search_knowledge / search_code / get_index_status when more than one workspace is registered (safe to pass with a single workspace too).
-3. Call get_index_status before non-trivial change or review work. If the index is empty, missing, model-mismatched, or git_sha is far behind the user's branch, warn the user to re-index for that workspace.
+3. Call get_index_status before non-trivial change or review work. If the index is empty, missing, model-mismatched, schema-mismatched, or git_sha is far behind the user's branch, warn the user to run a full `python -m rag.cli index` before relying on search.
 4. For scoped app work, use list_sources / known apps and pass app=<name> to code tools.
 5. Before implementing a change: call get_context_pack(task) or impact_of_change(change). Do not invent architecture from memory.
 6. When a requirement ID or requirement text is given: call trace_requirement first.
@@ -100,6 +100,10 @@ class EmbeddingConfig(BaseModel):
     max_input_chars: int = 6000
     # Parallel HTTP embedding requests (useful for Ollama /api/embeddings)
     concurrency: int = 4
+    # Open circuit after N consecutive failures; 0 disables the breaker.
+    circuit_breaker_failures: int = 3
+    # Seconds to keep the circuit open before a half-open probe; 0 disables.
+    circuit_breaker_seconds: float = 30.0
 
 
 class QdrantConfig(BaseModel):
@@ -135,6 +139,22 @@ class CapabilitiesConfig(BaseModel):
     lis: bool = False
 
 
+class McpOAuthConfig(BaseModel):
+    """OIDC resource-server settings for MCP HTTP (external authorization server)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    issuer_url: str = ""
+    # MCP resource identifier (RFC 8707); defaults to the public /mcp URL.
+    resource_server_url: str = ""
+    # Expected JWT audience (e.g. Entra Application ID URI or api://app-id).
+    audience: str = ""
+    # Optional; discovered via OpenID configuration when empty.
+    jwks_uri: str = ""
+    required_scopes: list[str] = Field(default_factory=list)
+
+
 class McpAuthConfig(BaseModel):
     """Bearer-token auth profile for non-loopback HTTP binds."""
 
@@ -144,6 +164,7 @@ class McpAuthConfig(BaseModel):
     require_auth_for_public_bind: bool = True
     # When true, bearer is required even on loopback (reverse-proxy / shared host).
     require_auth_always: bool = False
+    oauth: McpOAuthConfig = Field(default_factory=McpOAuthConfig)
 
 
 class McpConfig(BaseModel):
@@ -457,6 +478,17 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
     message_path = str(data.get("message_path", defaults.message_path) or defaults.message_path)
     stateless_http = _as_bool(data.get("stateless_http"), defaults.stateless_http)
     auth_data = data.get("auth") if isinstance(data.get("auth"), dict) else {}
+    oauth_data = auth_data.get("oauth") if isinstance(auth_data.get("oauth"), dict) else {}
+    oauth = McpOAuthConfig(
+        enabled=_as_bool(oauth_data.get("enabled"), False),
+        issuer_url=str(oauth_data.get("issuer_url") or "").strip(),
+        resource_server_url=str(oauth_data.get("resource_server_url") or "").strip(),
+        audience=str(oauth_data.get("audience") or "").strip(),
+        jwks_uri=str(oauth_data.get("jwks_uri") or "").strip(),
+        required_scopes=[
+            str(s).strip() for s in (oauth_data.get("required_scopes") or []) if str(s).strip()
+        ],
+    )
     auth = McpAuthConfig(
         tokens=list(auth_data.get("tokens") or []),
         require_auth_for_public_bind=_as_bool(
@@ -467,6 +499,7 @@ def _merge_mcp_config(data: dict[str, Any] | None) -> McpConfig:
             auth_data.get("require_auth_always"),
             False,
         ),
+        oauth=oauth,
     )
     max_body_bytes = int(data.get("max_body_bytes", defaults.max_body_bytes))
     rate_limit_per_minute = int(data.get("rate_limit_per_minute", defaults.rate_limit_per_minute))
@@ -499,6 +532,8 @@ def _overlay_env(config: Config) -> Config:
         "RAG_EMBEDDING_BATCH_SIZE": ("embedding", "batch_size", int),
         "RAG_EMBEDDING_MAX_INPUT_CHARS": ("embedding", "max_input_chars", int),
         "RAG_EMBEDDING_CONCURRENCY": ("embedding", "concurrency", int),
+        "RAG_EMBEDDING_CIRCUIT_BREAKER_FAILURES": ("embedding", "circuit_breaker_failures", int),
+        "RAG_EMBEDDING_CIRCUIT_BREAKER_SECONDS": ("embedding", "circuit_breaker_seconds", float),
         "RAG_QDRANT_MODE": ("qdrant", "mode", str),
         "RAG_QDRANT_LOCAL_PATH": ("qdrant", "local_path", str),
         "RAG_QDRANT_URL": ("qdrant", "url", str),
@@ -541,6 +576,19 @@ def _overlay_env(config: Config) -> Config:
         config.mcp.auth.require_auth_always = _as_bool(
             raw_always, config.mcp.auth.require_auth_always
         )
+
+    oauth = config.mcp.auth.oauth
+    raw_oauth_enabled = os.environ.get("RAG_MCP_OAUTH_ENABLED")
+    if raw_oauth_enabled is not None:
+        oauth.enabled = _as_bool(raw_oauth_enabled, oauth.enabled)
+    if os.environ.get("RAG_MCP_OAUTH_ISSUER") is not None:
+        oauth.issuer_url = os.environ["RAG_MCP_OAUTH_ISSUER"].strip()
+    if os.environ.get("RAG_MCP_OAUTH_AUDIENCE") is not None:
+        oauth.audience = os.environ["RAG_MCP_OAUTH_AUDIENCE"].strip()
+    if os.environ.get("RAG_MCP_OAUTH_JWKS_URI") is not None:
+        oauth.jwks_uri = os.environ["RAG_MCP_OAUTH_JWKS_URI"].strip()
+    if os.environ.get("RAG_MCP_OAUTH_RESOURCE") is not None:
+        oauth.resource_server_url = os.environ["RAG_MCP_OAUTH_RESOURCE"].strip()
 
     # Capability toggles (RAG_CAPABILITY_KNOWLEDGE / _CODE / _LIS)
     for cap_name in ("knowledge", "code", "lis"):
