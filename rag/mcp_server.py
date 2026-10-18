@@ -34,6 +34,7 @@ from rag.mcp_validate import (
 )
 from rag.runtime import RagRuntime
 from rag.services import (
+    AmbiguousWorkspaceError,
     ForbiddenError,
     NotFoundError,
     ServiceApp,
@@ -85,6 +86,14 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
     services = ServiceApp(config)
 
     def _service_error(exc: Exception) -> CallToolResult:
+        if isinstance(exc, AmbiguousWorkspaceError):
+            payload = {
+                "error": str(exc),
+                "code": "ambiguous_workspace",
+                "path": exc.path,
+                "candidates": exc.candidates,
+            }
+            return tool_error(json.dumps(payload, indent=2) + "\n")
         if isinstance(exc, (ValidationError, NotFoundError, ForbiddenError, ServiceError)):
             return tool_error(str(exc))
         logger.exception("RAG service call failed")
@@ -284,6 +293,30 @@ def _register(mcp: MCPServer, config: Config, runtime: RagRuntime) -> None:
 
         def _call() -> dict[str, Any]:
             return services.workspaces.get_workspace(workspace_id)
+
+        try:
+            payload = await anyio.to_thread.run_sync(_call)
+        except Exception as exc:
+            return _service_error(exc)
+        return as_tool_result(json.dumps(payload, indent=2) + "\n")
+
+    @mcp.tool()
+    async def resolve_workspace(path: str) -> CallToolResult:
+        """
+        Map a filesystem path (repo root, file, or subdirectory) to a registered workspace.
+
+        Use the Cursor workspace path or an open file path when multiple workspaces
+        are registered and workspace_id is unclear. Returns workspace_id plus the
+        matched source root. Ambiguous matches return candidates.
+
+        Args:
+            path: Absolute or relative filesystem path under a workspace source root.
+        """
+        if err := require_nonempty("path", path):
+            return tool_error(err)
+
+        def _call() -> dict[str, Any]:
+            return services.workspaces.resolve_workspace(path)
 
         try:
             payload = await anyio.to_thread.run_sync(_call)

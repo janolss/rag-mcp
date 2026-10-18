@@ -43,6 +43,7 @@ def test_workspace_tools_registered(tmp_path: Path):
     tools = asyncio.run(list_tools())
     names = {tool.name for tool in tools}
     assert "list_workspaces" in names
+    assert "resolve_workspace" in names
     assert "get_workspace_info" in names
     assert "get_document" in names
     assert "get_index_status" in names
@@ -75,3 +76,17 @@ def test_get_workspace_info_unknown_is_error(tmp_path: Path):
     assert (
         "not found" in result.content[0].text.lower() or "unknown" in result.content[0].text.lower()
     )
+
+
+def test_resolve_workspace_tool(tmp_path: Path):
+    (tmp_path / "README.md").write_text("# hi\n", encoding="utf-8")
+    server = _make(tmp_path)
+
+    async def call():
+        return await server.call_tool("resolve_workspace", {"path": str(tmp_path)})
+
+    result = asyncio.run(call())
+    assert result.is_error is False
+    payload = json.loads(result.content[0].text)
+    assert payload["workspace_id"] == "default"
+    assert Path(payload["matched_root"]) == tmp_path.resolve()

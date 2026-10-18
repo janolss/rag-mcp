@@ -21,3 +21,12 @@ class ValidationError(ServiceError):
 
 class WorkspaceRequiredError(ValidationError):
     """Raised when multi-workspace mode needs an explicit workspace_id."""
+
+
+class AmbiguousWorkspaceError(ValidationError):
+    """Multiple workspaces match a path at the same longest-prefix depth."""
+
+    def __init__(self, message: str, *, path: str, candidates: list[dict]):
+        super().__init__(message)
+        self.path = path
+        self.candidates = candidates

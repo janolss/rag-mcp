@@ -23,6 +23,7 @@ from rag.security.access import AccessDenied
 from rag.security.http_auth import BearerAuthMiddleware
 from rag.security.http_limits import MaxBodyMiddleware, RateLimitMiddleware
 from rag.services import (
+    AmbiguousWorkspaceError,
     ForbiddenError,
     NotFoundError,
     ServiceApp,
@@ -42,6 +43,8 @@ def _error_response(exc: Exception, *, status: int | None = None) -> JSONRespons
         code, http_status = "not_found", 404
     elif isinstance(exc, (AccessDenied, ForbiddenError, PermissionError)):
         code, http_status = "forbidden", 403
+    elif isinstance(exc, AmbiguousWorkspaceError):
+        code, http_status = "ambiguous_workspace", 400
     elif isinstance(exc, WorkspaceRequiredError):
         code, http_status = "workspace_required", 400
     elif isinstance(exc, (ValidationError, PydanticValidationError)):
@@ -53,7 +56,11 @@ def _error_response(exc: Exception, *, status: int | None = None) -> JSONRespons
         code, http_status = "internal_error", 500
     if status is not None:
         http_status = status
-    return JSONResponse({"error": str(exc), "code": code}, status_code=http_status)
+    body: dict[str, Any] = {"error": str(exc), "code": code}
+    if isinstance(exc, AmbiguousWorkspaceError):
+        body["path"] = exc.path
+        body["candidates"] = exc.candidates
+    return JSONResponse(body, status_code=http_status)
 
 
 def build_api_routes(config: Config, services: ServiceApp | None = None) -> list[Route]:
@@ -68,6 +75,7 @@ def build_api_routes(config: Config, services: ServiceApp | None = None) -> list
                 "api": "v1",
                 "endpoints": [
                     "GET /api/v1/workspaces",
+                    "GET /api/v1/workspaces/resolve",
                     "GET /api/v1/workspaces/{workspace_id}",
                     "GET /api/v1/workspaces/{workspace_id}/sources",
                     "POST /api/v1/search",
@@ -82,6 +90,16 @@ def build_api_routes(config: Config, services: ServiceApp | None = None) -> list
         tags = request.query_params.getlist("tag") or None
         try:
             payload = app_services.workspaces.list_workspaces(query=query, tags=tags)
+        except Exception as exc:
+            return _error_response(exc)
+        return JSONResponse(payload)
+
+    async def resolve_workspace(request: Request) -> JSONResponse:
+        path = request.query_params.get("path")
+        if not path or not str(path).strip():
+            return _error_response(ValidationError("path query parameter is required"), status=400)
+        try:
+            payload = app_services.workspaces.resolve_workspace(path)
         except Exception as exc:
             return _error_response(exc)
         return JSONResponse(payload)
@@ -190,6 +208,8 @@ def build_api_routes(config: Config, services: ServiceApp | None = None) -> list
         Route("/metrics", endpoint=metrics, methods=["GET"]),
         Route("/api/v1", endpoint=api_root, methods=["GET"]),
         Route("/api/v1/workspaces", endpoint=list_workspaces, methods=["GET"]),
+        # Static path before {workspace_id} so "resolve" is not captured as an id.
+        Route("/api/v1/workspaces/resolve", endpoint=resolve_workspace, methods=["GET"]),
         Route(
             "/api/v1/workspaces/{workspace_id}",
             endpoint=get_workspace,
