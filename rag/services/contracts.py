@@ -24,6 +24,9 @@ class WorkspaceService(Protocol):
     def get_workspace(self, workspace_id: str) -> dict[str, Any]:
         """Return detailed workspace metadata for a stable workspace ID."""
 
+    def resolve_workspace(self, path: str) -> dict[str, Any]:
+        """Map a filesystem path to a workspace via longest-prefix source root."""
+
 
 @runtime_checkable
 class SourceService(Protocol):

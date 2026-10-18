@@ -10,6 +10,7 @@ unchanged.
 |--------|------|-------|
 | GET | `/api/v1` | Discovery |
 | GET | `/api/v1/workspaces` | `?query=` `?tag=` |
+| GET | `/api/v1/workspaces/resolve` | `?path=` → `workspace_id` (longest-prefix) |
 | GET | `/api/v1/workspaces/{id}` | Detail |
 | GET | `/api/v1/workspaces/{id}/sources` | Sources |
 | POST | `/api/v1/search` | JSON body (`SearchRequest`) |
@@ -37,13 +38,14 @@ line range, and `content`. Absolute filesystem paths are not included.
 
 ## Errors
 
-JSON `{ "error": "...", "code": "not_found|validation_error|workspace_required|unauthorized|forbidden|body_too_large|rate_limited|..." }`
-with HTTP 400/401/403/404/413/429/500.
+JSON `{ "error": "...", "code": "not_found|validation_error|ambiguous_workspace|workspace_required|unauthorized|forbidden|body_too_large|rate_limited|..." }`
+with HTTP 400/401/403/404/413/429/500. Ambiguous path matches also include `path` and `candidates`.
 
 ## curl examples
 
 ```bash
 curl -s http://127.0.0.1:8000/api/v1/workspaces
+curl -s --get http://127.0.0.1:8000/api/v1/workspaces/resolve --data-urlencode "path=/path/to/repo"
 curl -s http://127.0.0.1:8000/api/v1/workspaces/default/sources
 curl -s -X POST http://127.0.0.1:8000/api/v1/search \
   -H 'content-type: application/json' \

@@ -97,3 +97,26 @@ def test_rest_mcp_parity_list_workspaces(tmp_path: Path):
     client = TestClient(create_api_app(config, services))
     via_rest = client.get("/api/v1/workspaces").json()
     assert via_rest == via_service
+
+
+def test_resolve_workspace_endpoint(tmp_path: Path):
+    repo = tmp_path / "repo"
+    docs = repo / "docs"
+    docs.mkdir(parents=True)
+    (docs / "a.md").write_text("# Hello\n", encoding="utf-8")
+    config = _config(tmp_path, repo)
+    client = TestClient(create_api_app(config))
+
+    missing_param = client.get("/api/v1/workspaces/resolve")
+    assert missing_param.status_code == 400
+
+    hit = client.get("/api/v1/workspaces/resolve", params={"path": str(docs / "a.md")})
+    assert hit.status_code == 200
+    body = hit.json()
+    assert body["workspace_id"] == "default"
+    assert Path(body["matched_root"]) == repo.resolve()
+
+    # Static route must not be captured as workspace_id="resolve"
+    as_id = client.get("/api/v1/workspaces/resolve")
+    assert as_id.status_code == 400
+    assert as_id.json()["code"] == "validation_error"

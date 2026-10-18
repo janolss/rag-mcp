@@ -7,8 +7,8 @@ from typing import Any
 from rag.config import Config
 from rag.security.access import AccessDenied, authorize_workspace
 from rag.security.http_auth import require_principal
-from rag.services.errors import ForbiddenError, NotFoundError
-from rag.services.resolve import registry_for, workspace_to_dict
+from rag.services.errors import ForbiddenError, NotFoundError, ValidationError
+from rag.services.resolve import registry_for, resolve_workspace_by_path, workspace_to_dict
 from rag.workspaces.registry import WorkspaceNotFoundError
 
 
@@ -65,3 +65,11 @@ class WorkspaceServiceImpl:
             for rel in workspace.relationships
         ]
         return payload
+
+    def resolve_workspace(self, path: str) -> dict[str, Any]:
+        if path is None or not str(path).strip():
+            raise ValidationError("path cannot be empty")
+        principal = require_principal()
+        registry = registry_for(self.config)
+        visible = [ws for ws in registry.list() if principal.allows_workspace(ws.id)]
+        return resolve_workspace_by_path(self.config, path, workspaces=visible)

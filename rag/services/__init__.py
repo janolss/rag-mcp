@@ -11,6 +11,7 @@ from rag.services.contracts import (
 )
 from rag.services.documents import DocumentServiceImpl
 from rag.services.errors import (
+    AmbiguousWorkspaceError,
     ForbiddenError,
     NotFoundError,
     ServiceError,
@@ -23,6 +24,7 @@ from rag.services.status import StatusServiceImpl
 from rag.services.workspaces import WorkspaceServiceImpl
 
 __all__ = [
+    "AmbiguousWorkspaceError",
     "AnalysisServiceImpl",
     "DocumentService",
     "DocumentServiceImpl",
