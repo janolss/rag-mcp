@@ -56,12 +56,25 @@ def create_mcp_server(config: Config, runtime: RagRuntime | None = None) -> MCPS
     """Build an MCPServer with tools/prompts registered per capabilities."""
     rt = runtime or RagRuntime(config)
     instructions = resolve_mcp_instructions(config)
+    auth_settings = None
+    token_verifier = None
+    from rag.security.oauth import (
+        CompositeTokenVerifier,
+        build_auth_settings,
+        oauth_enabled,
+    )
+
+    if oauth_enabled(config):
+        auth_settings = build_auth_settings(config)
+        token_verifier = CompositeTokenVerifier(config)
     server = MCPServer(
         config.mcp.name,
         title=_SERVER_TITLE,
         description=_SERVER_DESCRIPTION,
         instructions=instructions,
         version=package_version(),
+        auth=auth_settings,
+        token_verifier=token_verifier,
     )
     _register(server, config, rt)
     return server

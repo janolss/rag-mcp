@@ -5,10 +5,12 @@
   "description": "Local workspace RAG MCP server",
   "scripts": {
     "rag:up": "docker compose -f docker-compose.qdrant.yml up -d",
+    "rag:up:ollama": "docker compose -f docker-compose.qdrant.yml --profile ollama up -d",
     "rag:index": ".venv/bin/python -m rag.cli --config config.yaml index",
     "rag:status": ".venv/bin/python -m rag.cli --config config.yaml status",
     "rag:mcp": ".venv/bin/python -m rag.mcp_server",
     "rag:mcp:http": ".venv/bin/python -m rag.mcp_server --transport http --host 127.0.0.1 --port 8000",
+    "rag:mcp-json": ".venv/bin/python scripts/print_mcp_json.py",
     "rag:test": ".venv/bin/python -m pytest tests/ -q",
     "rag:lint": ".venv/bin/python -m ruff check . && .venv/bin/python -m ruff format --check .",
     "rag:verify": "npm run rag:lint && npm run rag:test",

@@ -60,6 +60,7 @@ class AccessPolicy:
     tokens: tuple[TokenRecord, ...] = ()
     require_auth_for_public_bind: bool = True
     require_auth_always: bool = False
+    oauth_enabled: bool = False
 
     @classmethod
     def from_mapping(cls, data: dict[str, Any] | None) -> AccessPolicy:
@@ -86,6 +87,7 @@ class AccessPolicy:
             tokens=tuple(tokens),
             require_auth_for_public_bind=bool(data.get("require_auth_for_public_bind", True)),
             require_auth_always=bool(data.get("require_auth_always", False)),
+            oauth_enabled=bool(data.get("oauth_enabled", False)),
         )
 
     def authenticate(self, bearer_token: str | None) -> Principal | None:
@@ -103,7 +105,7 @@ class AccessPolicy:
         return None
 
     def has_auth_profile(self) -> bool:
-        return bool(self.tokens)
+        return bool(self.tokens) or self.oauth_enabled
 
 
 def hash_token(token: str) -> str:
@@ -124,7 +126,7 @@ def assert_bind_allowed(host: str, policy: AccessPolicy, *, transport: str) -> N
     if policy.require_auth_for_public_bind and not policy.has_auth_profile():
         raise RuntimeError(
             f"refusing to bind MCP/HTTP on non-loopback host {host!r} without an "
-            "auth profile (configure mcp.auth.tokens with hashed secrets)"
+            "auth profile (configure mcp.auth.tokens and/or mcp.auth.oauth)"
         )
 
 

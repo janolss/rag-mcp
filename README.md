@@ -73,7 +73,14 @@ Edit at least:
 - `mcp.name` / `mcp.instructions` — how the agent should use the tools
 - `mcp.transport` — `stdio` (default) or HTTP for URL clients (see below)
 
-Health check: `python -m rag.cli doctor` (use `--skip-network` offline).
+Recommended order: **`doctor` → `index` → MCP**. Health check:
+
+```bash
+python -m rag.cli doctor   # use --skip-network offline
+```
+
+If doctor warns about an empty index or `payload_schema_version` mismatch, run a
+full index before starting MCP (see [docs/index-versioning.md](docs/index-versioning.md)).
 
 4. Index (full rebuild):
 
@@ -98,18 +105,9 @@ changes, prefer a full `index`.
 From the package root, print a ready-made snippet:
 
 ```bash
-ROOT="$(pwd -P)"
-cat <<EOF
-{
-  "mcpServers": {
-    "workspace-rag": {
-      "command": "$ROOT/.venv/bin/python",
-      "args": ["$ROOT/run_mcp.py"],
-      "env": { "RAG_CONFIG": "config.yaml" }
-    }
-  }
-}
-EOF
+npm run rag:mcp-json
+# or: .venv/bin/python scripts/print_mcp_json.py
+# HTTP URL entry: .venv/bin/python scripts/print_mcp_json.py --transport http
 ```
 
 Verify:
@@ -158,9 +156,10 @@ Point modern URL clients at **`/mcp`**, not `/`, `/sse`, or bare `host:port`.
 `GET http://127.0.0.1:8000/` returns a JSON map of endpoints.
 
 Bind to `127.0.0.1` by default (anonymous local access). Non-loopback binds
-(`0.0.0.0` / `::`) require `mcp.auth.tokens`; clients must send
-`Authorization: Bearer …` for REST and MCP paths. Prefer loopback for local
-agents, or put a reverse proxy in front for shared hosts. See
+(`0.0.0.0` / `::`) require `mcp.auth.tokens` and/or `mcp.auth.oauth`; clients
+must send `Authorization: Bearer …` for REST and MCP paths. Prefer loopback for
+local agents, or put a reverse proxy in front for shared hosts. OIDC discovery
+(Entra ID and other IdPs) is documented in
 [docs/access-control.md](docs/access-control.md).
 
 Config / env (CLI flags override):
@@ -175,6 +174,10 @@ mcp:
   #   tokens:
   #     - name: ci
   #       token_hash: "<sha256 hex>"
+  #   oauth:              # optional external IdP (JWT + discovery)
+  #     enabled: true
+  #     issuer_url: "https://login.microsoftonline.com/<tenant>/v2.0"
+  #     audience: "api://<app-id>"
 ```
 
 `RAG_MCP_TRANSPORT`, `RAG_MCP_HOST`, `RAG_MCP_PORT`, `RAG_MCP_PATH`.
@@ -198,8 +201,10 @@ npm run rag:index
 npm run rag:status
 npm run rag:mcp       # stdio
 npm run rag:mcp:http  # dual HTTP on :8000 (/mcp + /sse)
+npm run rag:mcp-json  # print mcp.json snippet with absolute paths
 npm run rag:test
 npm run rag:up        # optional Qdrant server via Docker Compose
+npm run rag:up:ollama # Qdrant + Ollama profile (then pull an embedding model)
 npm run package       # build dist/rag-mcp.zip
 ```
 
@@ -241,11 +246,12 @@ Useful knowledge to keep under existing globs:
 `qdrant.mode=local` allows **only one process** to open `qdrant_data/`.
 If an MCP client is running while you `index`, you get a lock error.
 
-Workflow with local mode:
+Checklist:
 
-1. Disable/stop MCP (or finish indexing first)
-2. Run `index`
-3. Enable MCP again
+1. Stop the other RAG process (Cursor MCP and/or `python -m rag.cli index`)
+2. Wait a second and retry
+3. Run `python -m rag.cli doctor`
+4. Or switch to `qdrant.mode=server` and `npm run rag:up` for concurrent use
 
 ### Team / concurrent agents
 
@@ -265,8 +271,15 @@ export QDRANT_API_KEY="$(openssl rand -hex 24)"
 npm run rag:up
 ```
 
-Optional local embeddings: run Ollama separately (`ollama serve` + pull your
-embedding model) and point `embedding.provider: ollama` at `http://localhost:11434`.
+Optional local embeddings via Compose profile (loopback Ollama):
+
+```bash
+export QDRANT_API_KEY="$(openssl rand -hex 24)"
+npm run rag:up:ollama
+docker compose -f docker-compose.qdrant.yml exec ollama ollama pull nomic-embed-text
+```
+
+Then set `embedding.provider: ollama` and `base_url: http://localhost:11434`.
 A combined Compose profile for Qdrant+Ollama is not shipped; keep the two processes
 explicit for now.
 

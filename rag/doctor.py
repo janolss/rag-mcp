@@ -192,7 +192,8 @@ def check_index_manifest(config: Config) -> CheckResult:
     if existing.payload_schema_version != PAYLOAD_SCHEMA_VERSION:
         status = "warn"
         notes.append(
-            f"expected payload_schema_version={PAYLOAD_SCHEMA_VERSION}; full reindex required"
+            f"expected payload_schema_version={PAYLOAD_SCHEMA_VERSION}; "
+            "full reindex required: python -m rag.cli index"
         )
     if existing.embedding_model and existing.embedding_model != expected.embedding_model:
         status = "warn"
@@ -220,10 +221,13 @@ def check_index_freshness(config: Config) -> CheckResult:
     status: CheckStatus = "ok"
     if points == 0:
         status = "warn"
-        notes.append("empty index")
+        notes.append("empty index — run: python -m rag.cli index")
     if indexed_model and indexed_model != current_model:
         status = "warn"
-        notes.append(f"model mismatch index={indexed_model!r} config={current_model!r}")
+        notes.append(
+            f"model mismatch index={indexed_model!r} config={current_model!r}; "
+            "full reindex required: python -m rag.cli index"
+        )
     if git_sha and head and git_sha != head:
         status = "warn"
         notes.append(f"git_sha index={git_sha[:8]} head={head[:8]}")

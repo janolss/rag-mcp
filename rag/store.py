@@ -48,9 +48,10 @@ def lock_error_message(path: str) -> str:
     return (
         f"Qdrant local storage is locked: {path}. "
         "Only one process can use qdrant.mode=local at a time. "
-        "Stop the other RAG process (Cursor MCP lk-rag and/or `rag.cli index`), "
-        "wait a second, then retry — or switch to qdrant.mode=server "
-        "(npm run rag:up) for concurrent MCP + indexing."
+        "Checklist: (1) stop the other RAG process (Cursor MCP and/or "
+        "`python -m rag.cli index`), (2) wait a second and retry, "
+        "(3) run `python -m rag.cli doctor`, or (4) switch to "
+        "qdrant.mode=server and `npm run rag:up` for concurrent MCP + indexing."
     )
 
 

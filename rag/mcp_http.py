@@ -89,19 +89,15 @@ def _attach_http_routes(app: Any, config: Config) -> None:
 
 async def run_http_async(mcp: MCPServer, config: Config) -> None:
     """Run streamable-http, SSE, or both (transport=http) under uvicorn."""
-    from rag.security.access import AccessPolicy, assert_bind_allowed
+    from rag.security.access import assert_bind_allowed
 
     transport = normalize_mcp_transport(config.mcp.transport)
     host = config.mcp.host
     port = int(config.mcp.port)
     log_level = config.log_level
-    policy = AccessPolicy.from_mapping(
-        {
-            "tokens": list(config.mcp.auth.tokens),
-            "require_auth_for_public_bind": config.mcp.auth.require_auth_for_public_bind,
-            "require_auth_always": config.mcp.auth.require_auth_always,
-        }
-    )
+    from rag.security.oauth import build_access_policy
+
+    policy = build_access_policy(config)
     assert_bind_allowed(host, policy, transport=transport)
 
     if transport == "streamable-http":
