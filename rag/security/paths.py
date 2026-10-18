@@ -60,6 +60,23 @@ DEFAULT_ALLOWED_SUFFIXES = frozenset(
         ".toml",
         ".rst",
         ".csv",
+        # Additional source / infra / docs used across indexed workspaces
+        ".rs",
+        ".swift",
+        ".metal",
+        ".c",
+        ".h",
+        ".m",
+        ".cs",
+        ".vue",
+        ".html",
+        ".sql",
+        ".sh",
+        ".bicep",
+        ".bicepparam",
+        ".pdf",
+        ".docx",
+        ".sru",
     }
 )
 

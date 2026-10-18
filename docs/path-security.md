@@ -14,7 +14,11 @@
 - Operators may extend the denylist via `index.extra_secret_names` and
   `index.extra_secret_suffixes` in `config.yaml` (unioned with the defaults).
 - Default max file size is 2 MiB.
-- Allowed suffixes are limited to common text/code/doc extensions.
+- Allowed suffixes cover common text/code/doc extensions, including
+  `.rs`, `.swift`, `.metal`, `.c`/`.h`/`.m`, `.cs`, `.vue`, `.html`, `.sql`,
+  `.sh`, `.bicep`/`.bicepparam`, `.pdf`, `.docx`, and `.sru` (plus the original
+  markdown/JS/TS/Python/YAML/TOML set). Binaries (e.g. `.pt`, `.png`, `.mp4`)
+  remain blocked.
 
 ## Logging
 
