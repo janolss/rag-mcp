@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RAG MCP dashboard</title>
+  <link rel="stylesheet" href="/gui/style.css">
+  <script src="/gui/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>RAG MCP dashboard</h1>
+      <p>Server status and workspace indexing</p>
+    </header>
+    <section aria-labelledby="server-heading">
+      <h2 id="server-heading">Server</h2>
+      <p id="server-status" role="status">Connecting…</p>
+      <p id="index-status"></p>
+    </section>
+    <section aria-labelledby="workspaces-heading">
+      <div class="section-header">
+        <h2 id="workspaces-heading">Workspaces</h2>
+        <button id="reindex-all" type="button" disabled>Reindex all</button>
+      </div>
+      <p id="message" role="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Workspace</th><th>Last successful index</th><th>Action</th></tr></thead>
+          <tbody id="workspaces"></tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="history-heading">
+      <h2 id="history-heading">Recent indexing jobs</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Updated</th><th>Workspace</th><th>Status</th><th>Duration</th><th>Details</th></tr></thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+      <p class="hint">Job records are retained by the indexer. Older or repeated CLI jobs may not have separate history entries.</p>
+    </section>
+  </main>
+</body>
+</html>

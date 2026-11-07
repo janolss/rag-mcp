@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -76,7 +77,7 @@ class CollectionRouter:
         return str(row["previous"])
 
     def staging_collection(self) -> str:
-        return f"{self.base_name}__staging_{int(time.time())}"
+        return f"{self.base_name}__staging_{uuid.uuid4().hex}"
 
     def activate(self, generation: str, *, vector_size: int) -> None:
         previous = self.active_collection()

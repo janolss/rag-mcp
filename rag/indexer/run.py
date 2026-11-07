@@ -417,7 +417,6 @@ def _run_index_workspace_inplace(
     store = VectorStore(config)
     try:
         store.ensure_collection(vector_size)
-        store.delete_by_workspace(workspace_id)
         texts = [c["content"] for c in chunks]
         logger.info(
             "Embedding %d chunks for workspace %s into active '%s'",
@@ -426,6 +425,7 @@ def _run_index_workspace_inplace(
             router.active_collection(),
         )
         vectors = embedder.embed_texts(texts, for_query=False)
+        store.delete_by_workspace(workspace_id)
         count = store.upsert_chunks(chunks, vectors)
         if count <= 0:
             raise RuntimeError(f"workspace index for {workspace_id!r} produced zero points")

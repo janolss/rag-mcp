@@ -1,0 +1,16 @@
+:root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+body { margin: 0; background: light-dark(#f4f6f9, #151922); color: light-dark(#192333, #e4e9f2); }
+main { max-width: 1000px; margin: auto; padding: 1.5rem; }
+header p, .hint { color: light-dark(#526173, #a9b5c5); }
+section { background: light-dark(#fff, #202836); border: 1px solid light-dark(#dce2e9, #394758); border-radius: .6rem; padding: 1rem 1.25rem; margin: 1rem 0; }
+h1 { margin-bottom: .2rem; }
+h2 { font-size: 1.2rem; margin: .4rem 0 1rem; }
+.section-header { display: flex; justify-content: space-between; gap: 1rem; align-items: center; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; text-align: left; }
+th, td { padding: .65rem .5rem; border-bottom: 1px solid light-dark(#e2e7ec, #394758); vertical-align: top; }
+th { font-size: .9rem; }
+button { cursor: pointer; border: 0; border-radius: .3rem; padding: .55rem .8rem; background: #245caa; color: white; font: inherit; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.error { color: light-dark(#a51c1c, #ffaaaa); }
+.hint { font-size: .85rem; }
