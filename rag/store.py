@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 import uuid
 from collections.abc import Sequence
@@ -20,6 +21,28 @@ SearchScope = Literal["workspace", "source", "related", "global"]
 VALID_SCOPES: frozenset[str] = frozenset({"workspace", "source", "related", "global"})
 # global stays disabled until an explicit cross-tenant policy exists.
 DISABLED_SCOPES: frozenset[str] = frozenset({"global"})
+
+_LOCAL_CLIENTS_LOCK = threading.RLock()
+_LOCAL_CLIENTS: dict[str, tuple[_SynchronizedClient, int]] = {}
+
+
+class _SynchronizedClient:
+    """Serialize access to a shared in-process local Qdrant client."""
+
+    def __init__(self, client: QdrantClient):
+        self._client = client
+        self._lock = threading.RLock()
+
+    def __getattr__(self, name: str) -> Any:
+        value = getattr(self._client, name)
+        if not callable(value):
+            return value
+
+        def call(*args: Any, **kwargs: Any) -> Any:
+            with self._lock:
+                return value(*args, **kwargs)
+
+        return call
 
 
 class QdrantLockError(RuntimeError):
@@ -64,7 +87,10 @@ class VectorStore:
         connect_retry_delay_ms: int | None = None,
     ):
         self._config = config
-        self.collection = config.qdrant.collection
+        self._collection = config.qdrant.collection
+        self._router = None
+        self._local_path: str | None = None
+        self._closed = False
         retries = (
             connect_retries
             if connect_retries is not None
@@ -75,7 +101,31 @@ class VectorStore:
             if connect_retry_delay_ms is not None
             else int(getattr(config.qdrant, "connect_retry_delay_ms", 500) or 500)
         )
-        self.client = self._connect(retries=max(1, retries), delay_ms=max(0, delay_ms))
+        if config.qdrant.mode == "local":
+            path = str(config.qdrant_local_path)
+            with _LOCAL_CLIENTS_LOCK:
+                existing = _LOCAL_CLIENTS.get(path)
+                if existing:
+                    self.client = existing[0]
+                    _LOCAL_CLIENTS[path] = (existing[0], existing[1] + 1)
+                else:
+                    self.client = _SynchronizedClient(
+                        self._connect(retries=max(1, retries), delay_ms=max(0, delay_ms))
+                    )
+                    _LOCAL_CLIENTS[path] = (self.client, 1)
+                self._local_path = path
+        else:
+            self.client = self._connect(retries=max(1, retries), delay_ms=max(0, delay_ms))
+
+    @property
+    def collection(self) -> str:
+        if self._config.qdrant.mode != "local":
+            return self._collection
+        if self._router is None:
+            from rag.indexer.collections import CollectionRouter
+
+            self._router = CollectionRouter(self._config)
+        return self._router.active_collection()
 
     def _connect(self, *, retries: int, delay_ms: int) -> QdrantClient:
         mode = self._config.qdrant.mode
@@ -99,7 +149,7 @@ class VectorStore:
                     attempt,
                     retries,
                 )
-                return QdrantClient(path=path)
+                return QdrantClient(path=path, force_disable_check_same_thread=True)
             except Exception as exc:
                 last_exc = exc
                 if not _is_lock_error(exc):
@@ -469,6 +519,21 @@ class VectorStore:
         return list(records)
 
     def close(self) -> None:
+        if self._local_path is not None:
+            with _LOCAL_CLIENTS_LOCK:
+                if self._closed:
+                    return
+                self._closed = True
+                client, count = _LOCAL_CLIENTS[self._local_path]
+                if count > 1:
+                    _LOCAL_CLIENTS[self._local_path] = (client, count - 1)
+                    return
+                del _LOCAL_CLIENTS[self._local_path]
+                try:
+                    client.close()
+                except Exception:
+                    logger.exception("Error while closing local Qdrant client")
+            return
         try:
             self.client.close()
         except Exception:

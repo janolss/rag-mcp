@@ -255,7 +255,13 @@ class CorrelationMiddleware:
 
 def mount_api_routes(app: Any, config: Config, services: ServiceApp | None = None) -> None:
     """Insert /api/v1 routes onto an existing Starlette app (MCP HTTP host)."""
-    for route in reversed(build_api_routes(config, services=services)):
+    from rag.gui_api import build_gui_routes
+
+    app_services = services or ServiceApp(config)
+    routes = build_api_routes(config, services=app_services) + build_gui_routes(
+        config, app_services
+    )
+    for route in reversed(routes):
         app.routes.insert(0, route)
 
 
@@ -299,8 +305,9 @@ def install_http_middleware(app: Any, config: Config) -> None:
 
 
 def create_api_app(config: Config, services: ServiceApp | None = None) -> Starlette:
-    """Standalone Starlette app exposing only /api/v1 (useful for tests)."""
-    app = Starlette(routes=build_api_routes(config, services=services))
+    """Standalone Starlette app exposing REST and the local GUI."""
+    app = Starlette()
+    mount_api_routes(app, config, services=services)
     install_http_middleware(app, config)
     return app
 

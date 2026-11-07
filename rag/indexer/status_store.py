@@ -242,6 +242,15 @@ class StatusStore:
             conn.commit()
             return int(cur.rowcount or 0)
 
+    def renew_lease(self, job_id: str, *, lease_expires_at: float) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET lease_expires_at = ? WHERE job_id = ? AND status = 'running'",
+                (lease_expires_at, job_id),
+            )
+            conn.commit()
+            return cur.rowcount == 1
+
 
 def _row_to_job(row: sqlite3.Row) -> JobRecord:
     return JobRecord(

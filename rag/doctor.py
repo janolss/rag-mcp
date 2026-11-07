@@ -40,8 +40,8 @@ def _expected_venv_prefix() -> Path:
 
 def check_python() -> CheckResult:
     major, minor = sys.version_info[:2]
-    if (major, minor) < (3, 10):
-        return CheckResult("python", "fail", f"Python {major}.{minor} < 3.10")
+    if (major, minor) < (3, 15):
+        return CheckResult("python", "fail", f"Python {major}.{minor} < 3.15")
     prefix = Path(sys.prefix).resolve()
     expected = _expected_venv_prefix()
     exe = Path(sys.executable).resolve()

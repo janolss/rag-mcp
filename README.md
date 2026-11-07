@@ -18,7 +18,7 @@ For Ollama batched embeddings, set `base_url: "http://localhost:11434/api/embed"
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.15+
 - A local embedding server (OpenAI-compatible **or** Ollama native)
 - Qdrant: default **local file** mode (no Docker). Optional server via Compose.
 
@@ -154,6 +154,28 @@ npm run rag:mcp:http
 
 Point modern URL clients at **`/mcp`**, not `/`, `/sse`, or bare `host:port`.
 `GET http://127.0.0.1:8000/` returns a JSON map of endpoints.
+
+#### Local web dashboard
+
+With any HTTP transport running, open **http://127.0.0.1:8000/gui** on the
+server machine. The dashboard polls every five seconds for server and index
+status, the latest known successful index time for each workspace, and recent
+index jobs. Use the buttons to reindex one workspace or all workspaces. Jobs run
+in the server process; their progress and failures appear in the job table.
+Only one dashboard job can run at a time, and an existing active index job
+prevents starting another. Avoid starting CLI indexing concurrently with a
+dashboard job. Do not stop the server while a job is running.
+Reindexing requires Qdrant `local` or `server` mode; `memory` mode uses
+independent ephemeral stores and is not supported for dashboard reindexing.
+
+The dashboard is available only through a loopback client and a localhost
+address. It uses the existing HTTP authentication policy and requires an
+unrestricted principal; browser access is intended for the default anonymous
+loopback configuration, not `require_auth_always`. It is not available with
+stdio transport. Successful timestamps come from retained job records and the
+latest status file; older runs and repeated CLI jobs may not have separate
+history records. A missing timestamp means the time is unknown, not necessarily
+that a workspace was never indexed.
 
 Bind to `127.0.0.1` by default (anonymous local access). Non-loopback binds
 (`0.0.0.0` / `::`) require `mcp.auth.tokens` and/or `mcp.auth.oauth`; clients

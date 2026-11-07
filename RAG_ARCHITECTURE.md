@@ -5,7 +5,7 @@ implementation lives in this package (`rag-mcp`).
 
 ## Runtime decision
 
-The stack is Python 3.10+ (MCP SDK, Starlette/Uvicorn, Qdrant, Pydantic, Ruff).
+The stack is Python 3.15+ (MCP SDK, Starlette/Uvicorn, Qdrant, Pydantic, Ruff).
 See [docs/adr/0001-python-runtime.md](docs/adr/0001-python-runtime.md).
 
 MCP and HTTP adapters share `rag.services.ServiceApp` (protocols in

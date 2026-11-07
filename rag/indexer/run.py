@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -296,7 +296,7 @@ def _infer_bucket(config: Config, identity: str, path: Path) -> str | None:
 
 def _status_base(config: Config, *, chunk_count: int, vector_size: int) -> dict[str, Any]:
     return {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "model": config.embedding.model,
         "embedding_base_url": config.embedding.base_url,
         "collection": config.qdrant.collection,
@@ -417,7 +417,6 @@ def _run_index_workspace_inplace(
     store = VectorStore(config)
     try:
         store.ensure_collection(vector_size)
-        store.delete_by_workspace(workspace_id)
         texts = [c["content"] for c in chunks]
         logger.info(
             "Embedding %d chunks for workspace %s into active '%s'",
@@ -426,6 +425,7 @@ def _run_index_workspace_inplace(
             router.active_collection(),
         )
         vectors = embedder.embed_texts(texts, for_query=False)
+        store.delete_by_workspace(workspace_id)
         count = store.upsert_chunks(chunks, vectors)
         if count <= 0:
             raise RuntimeError(f"workspace index for {workspace_id!r} produced zero points")

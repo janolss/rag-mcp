@@ -717,7 +717,7 @@ def main(argv: list[str] | None = None) -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
             signal.signal(sig, _shutdown)
-        except (ValueError, OSError):
+        except ValueError, OSError:
             # Signals may be unavailable in some embed contexts
             pass
 

@@ -4,18 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-mcp"
-version = "0.4.0"
+version = "0.5.0"
 description = "Local workspace RAG MCP toolkit"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.15"
 dependencies = [
   "mcp>=2.3.0,<3",
-  "qdrant-client>=1.19.1,<2",
+  "qdrant-client>=1.20.0,<2",
   "httpx>=0.28.1,<1",
   "pyyaml>=6.0.3,<7",
   "python-dotenv>=1.2.4,<2",
-  "pydantic>=2.10,<3",
-  "starlette>=0.40,<2",
+  "pydantic>=2.14.3,<3",
+  "starlette>=1.10.0,<2",
   "uvicorn>=0.30,<1",
   "pyjwt[crypto]>=2.10,<3",
 ]
@@ -43,8 +43,11 @@ rag-cli = "rag.cli:main"
 [tool.setuptools.packages.find]
 include = ["rag*"]
 
+[tool.setuptools.package-data]
+rag = ["gui/*.html", "gui/*.css", "gui/*.js"]
+
 [tool.ruff]
-target-version = "py310"
+target-version = "py315"
 line-length = 100
 src = ["rag", "tests", "run_mcp.py"]
 exclude = [

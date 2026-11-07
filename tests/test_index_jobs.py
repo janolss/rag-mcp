@@ -74,6 +74,31 @@ def test_lease_timeout_allows_retry(tmp_path: Path):
     assert second.status == "succeeded"
 
 
+def test_running_job_renews_lease(tmp_path: Path):
+    store = StatusStore(tmp_path / "jobs.sqlite3")
+    started = threading.Event()
+    release = threading.Event()
+
+    def runner(_req: JobRequest) -> dict:
+        started.set()
+        assert release.wait(5)
+        return {"ok": True}
+
+    coordinator = JobCoordinator(store, lease_seconds=0.15, runner=runner)
+    thread = threading.Thread(target=coordinator.run, args=(JobRequest(),))
+    thread.start()
+    try:
+        assert started.wait(5)
+        time.sleep(0.35)
+        assert store.expire_stale_leases() == 0
+        assert store.list_jobs()[0].status == "running"
+    finally:
+        release.set()
+        thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert store.list_jobs()[0].status == "succeeded"
+
+
 def test_search_unaffected_marker(tmp_path: Path):
     """Coordinator does not swap collections; search uses active generation."""
     store = StatusStore(tmp_path / "jobs.sqlite3")

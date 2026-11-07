@@ -160,6 +160,21 @@ class JobCoordinator:
             return self.wait(job.job_id)
 
         runner = self._runner or _default_runner_for_config
+        stop_heartbeat = threading.Event()
+
+        def heartbeat() -> None:
+            while not stop_heartbeat.wait(self.lease_seconds / 3):
+                try:
+                    if not self.store.renew_lease(
+                        claimed.job_id, lease_expires_at=time.time() + self.lease_seconds
+                    ):
+                        logger.error("Index job %s lost its lease", claimed.job_id)
+                        return
+                except Exception:
+                    logger.exception("Could not renew lease for index job %s", claimed.job_id)
+
+        heartbeat_thread = threading.Thread(target=heartbeat, name="rag-index-lease", daemon=True)
+        heartbeat_thread.start()
         try:
             # Bind config via closure attribute if provided by factory.
             result = runner(request)
@@ -182,6 +197,9 @@ class JobCoordinator:
             )
             assert updated is not None
             raise
+        finally:
+            stop_heartbeat.set()
+            heartbeat_thread.join()
 
     def wait(self, job_id: str, *, timeout: float = 600.0, poll: float = 0.05) -> JobRecord:
         deadline = time.time() + timeout
@@ -235,6 +253,7 @@ def run_index_job(
     files: Sequence[str] | None = None,
     workspace_id: str | None = None,
     wait: bool = True,
+    idempotency_key: str | None = None,
 ) -> dict[str, Any]:
     """CLI/server entry: coordinate then optionally wait for completion."""
     from rag.workspaces import WorkspaceRegistry
@@ -258,6 +277,7 @@ def run_index_job(
         source_id="*",
         mode="partial" if files else "full",
         files=tuple(files or ()),
+        idempotency_key=idempotency_key,
     )
 
     def runner(req: JobRequest) -> dict[str, Any]:
