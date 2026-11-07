@@ -8,7 +8,7 @@ Accepted
 
 The multi-workspace plan originally recommended Node.js, TypeScript and Fastify.
 The existing implementation is already a working single-workspace RAG/MCP service
-written in Python 3.10+ with:
+written in Python 3.15+ with:
 
 - official MCP TypeScript is not required because the Python MCP SDK is in use
 - Starlette/Uvicorn for HTTP/SSE transports
@@ -25,7 +25,7 @@ Keep Python as the runtime and language for the multi-workspace evolution.
 
 Primary stack:
 
-- Python 3.10+
+- Python 3.15+
 - MCP Python SDK
 - Starlette + Uvicorn for HTTP transports
 - Qdrant

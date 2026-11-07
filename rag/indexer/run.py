@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -296,7 +296,7 @@ def _infer_bucket(config: Config, identity: str, path: Path) -> str | None:
 
 def _status_base(config: Config, *, chunk_count: int, vector_size: int) -> dict[str, Any]:
     return {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "model": config.embedding.model,
         "embedding_base_url": config.embedding.base_url,
         "collection": config.qdrant.collection,

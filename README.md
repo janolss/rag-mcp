@@ -18,7 +18,7 @@ For Ollama batched embeddings, set `base_url: "http://localhost:11434/api/embed"
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.15+
 - A local embedding server (OpenAI-compatible **or** Ollama native)
 - Qdrant: default **local file** mode (no Docker). Optional server via Compose.
 

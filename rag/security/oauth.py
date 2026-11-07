@@ -203,5 +203,5 @@ def _scopes_from_claims(claims: dict[str, Any]) -> list[str]:
 def _as_int(value: Any) -> int | None:
     try:
         return int(value) if value is not None else None
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
